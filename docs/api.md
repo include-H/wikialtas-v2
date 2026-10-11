@@ -79,11 +79,13 @@
 | POST | `/api/library/scan` | 立即扫描（入队 scan job；返回 job_id） | ✅ M1 |
 | GET | `/api/library/manifest` | 清单（可按 source / 容器 / 有无文档过滤） | ✅ M1 |
 | GET | `/api/library/pool` | **池子**：无文档的库条目 | ✅ M1 |
-| POST | `/api/library/links` | 建档 / 挂链（**原子**：节点 + 链同事务） | ⬜ |
-| DELETE | `/api/library/links/{id}` | 解链（保留文档） | ⬜ |
+| POST | `/api/library/links` | 建档 / 挂链（**原子**：节点 + 链同事务） | ✅ M2 |
+| DELETE | `/api/library/links/{id}` | 解链（保留文档） | ✅ M2 |
 | POST | `/api/library/links/{id}/relink` | 重挂（旧链 `replaced`） | ⬜ |
 | GET | `/api/library/links/{id}/relink-candidates` | 宿主建议的候选（归一化 + trigram） | ⬜ |
-| POST | `/api/library/ignores` | 忽略（单条 / 整组） | ⬜ |
+| POST | `/api/library/ignores` | 忽略（单条 / 整组） | ✅ M2 |
+| GET | `/api/library/ignores` | 已忽略列表（可恢复） | ✅ M2 |
+| DELETE | `/api/library/ignores/{id}` | 恢复被忽略的条目 / 组 | ✅ M2 |
 | POST | `/api/library/links/{id}/sync` | 手动重推反哺 | ⬜ |
 | GET | `/api/library/suggestions` | 该条目的库建议（含 reject 理由） | ⬜ |
 | GET | `/api/library/status` | 池子页顶部：哪些源配好了（**只有布尔，没有值**）+ 队列深度 | ✅ M1 |

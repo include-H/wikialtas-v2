@@ -791,3 +791,25 @@ body {
   font-size: 11px;
   color: var(--ant-color-text-tertiary);
 }
+
+.pool-row-title.is-link {
+  cursor: pointer;
+}
+
+.pool-row-title.is-link:hover {
+  color: var(--ant-color-primary);
+}
+
+.build-doc-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.build-doc-head strong {
+  color: var(--ant-color-text);
+  font-size: 14px;
+}

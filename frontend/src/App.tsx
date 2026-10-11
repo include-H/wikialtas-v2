@@ -11,7 +11,7 @@ import {
 import { api } from './api'
 import AiPanel from './panels/AiPanel'
 import DocPanel from './panels/DocPanel'
-import PoolPanel from './panels/PoolPanel'
+import PoolPanel from './panels/pool/PoolPanel'
 import TreePanel from './panels/TreePanel'
 import { useUi } from './store'
 

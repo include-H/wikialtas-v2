@@ -108,6 +108,29 @@ export interface LibraryStatus {
   queueDepth: number
 }
 
+export interface BuildLinkReq {
+  source: LibrarySource
+  external_id: string
+  role?: LinkRole
+  parent_id?: string | null
+}
+
+export interface BuiltDoc {
+  node: Node
+  link_id: string
+  reused: boolean
+}
+
+export interface Ignore {
+  id: string
+  source: LibrarySource | null
+  external_id: string | null
+  group_key: string | null
+  reason: string
+  created_by: string
+  created_at: string
+}
+
 export interface PoolQuery {
   source?: LibrarySource
   container?: string
@@ -180,6 +203,30 @@ export const api = {
   libraryStatus: () => fetch('/api/library/status').then(toJson<LibraryStatus>),
 
   libraryScanRuns: () => fetch('/api/library/scan-runs').then(toJson<ScanRun[]>),
+
+  /** 建档：原子建【节点 + 链】（落位规则在后端）。 */
+  buildLink: (req: BuildLinkReq) =>
+    fetch('/api/library/links', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(req),
+    }).then(toJson<BuiltDoc>),
+
+  /** 解链：**保留文档**。返回文档节点 id。 */
+  unlink: (linkId: string) =>
+    fetch(`/api/library/links/${linkId}`, { method: 'DELETE' }).then(toJson<{ nodeId: string }>),
+
+  libraryIgnores: () => fetch('/api/library/ignores').then(toJson<Ignore[]>),
+
+  addIgnore: (req: { source?: LibrarySource; external_id?: string; group_key?: string; reason?: string }) =>
+    fetch('/api/library/ignores', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(req),
+    }).then(toJson<{ id: string }>),
+
+  removeIgnore: (id: string) =>
+    fetch(`/api/library/ignores/${id}`, { method: 'DELETE' }).then(toJson<{ ok: boolean }>),
 
   libraryScan: (sources?: LibrarySource[]) =>
     fetch('/api/library/scan', {

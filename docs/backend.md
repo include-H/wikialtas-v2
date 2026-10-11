@@ -207,4 +207,12 @@ bash scripts/layout-check.sh    # 32 项：三档视口 + 触底 + 窄屏抽屉�
 - 迁移 `0002_library_manifest`：把契约字段（副标题/别名/封面/URL/容器/format/extra/hash/first_seen）落成真列。
 - 前端：左栏「媒体库池子」视图（源/有无文档/关键词过滤 + 「扫描媒体库」入队轮询）。
 
-**下一步（M2 建档与关联）**：池子点一条 → **原子**建【节点 + `library_links` 链】（落位规则：系列容器当父节点、Emby 库进顶级、同名才加介质后缀）；解链保留文档；`library_ignores` 三态忽略。
+**已落地（M2：建档与关联）**
+
+- `domain::place`：落位规则（纯函数 + 7 条单测）——介质由 `(source, kind, format)` 推；子标题默认条目名，**与父同名或与兄弟撞名才加介质后缀**，后缀再撞加序号；复用只认同介质（同作品不同媒体各建一个节点）。
+- `store::library::build_doc`：**建【容器系列（缺则建）+ work 节点 + 链】三件事同一个事务**；`unlink` 只删链（文档保留）；`library_ignores` 单条 / 整组 + 恢复。
+- `nodes::{create_in_tx,get_in_tx}`：把「读同级末尾 → 分配 sort_key → 插节点」抽出来，两条建节点路径共用一份规则。
+- API：`POST /api/library/links` · `DELETE /api/library/links/{id}` · `GET/POST /api/library/ignores` · `DELETE /api/library/ignores/{id}`。
+- 前端：池子行「建档」（父节点 / 正片位·混杂位可覆盖，默认按容器自动）/「解链」/「忽略（单条·整组）」+「已忽略」恢复入口。
+
+**下一步（M3 尖刺 B）**：run 执行器 + `response.*` 事件流 + SSE 投影 + 一个写工具落草稿。**动 AI 之前先通读 `behavior-notes.md`**（头号风险：v1 调出来的行为知识会丢）。

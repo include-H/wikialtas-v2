@@ -7,7 +7,7 @@ mod dto;
 mod error;
 mod routes;
 
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
@@ -49,6 +49,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/library/scan", post(routes::library_scan))
         .route("/api/library/scan-runs", get(routes::library_scan_runs))
         .route("/api/library/status", get(routes::library_status))
+        // 建档 / 解链 / 忽略（M2）
+        .route("/api/library/links", post(routes::build_link))
+        .route("/api/library/links/{id}", delete(routes::unlink))
+        .route("/api/library/ignores", get(routes::list_ignores).post(routes::add_ignore))
+        .route("/api/library/ignores/{id}", delete(routes::remove_ignore))
         // 仅开发：放行本地前端（Vite）。上线前收紧成白名单。
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

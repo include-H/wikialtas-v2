@@ -43,16 +43,20 @@ chk "清单条数 = 三源之和" \
   "$($PSQL -c 'select count(*) from library_manifest where missing_since is null')" \
   "$($PSQL -c "select count(*) from library_manifest where missing_since is null and source in ('gameatlas','emby','komga')")"
 
-echo "=== 3. 池子 API：无文档 = 清单条数（M1 还没建档，所以全部无文档） ==="
+echo "=== 3. 池子 API：无文档 + 有文档 = 清单条数 ==="
+# 注意：不要假设"全都无文档"——M2 起可以建档，库里会有几条有文档的。
 pool_n=$(curl -s "$API/api/library/pool?has_doc=false" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')
+pool_has=$(curl -s "$API/api/library/pool?has_doc=true" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')
 manifest_n=$($PSQL -c "select count(*) from library_manifest where missing_since is null")
-chk "池子(无文档) 条数 = 清单条数" "$pool_n" "$manifest_n"
-chk "池子(有文档) 现在为空" "$(curl -s "$API/api/library/pool?has_doc=true" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')" "0"
+chk "池子(无文档+有文档) 条数 = 清单条数" "$((pool_n + pool_has))" "$manifest_n"
+chk "无文档的那批非空" "$([ "$pool_n" -gt 0 ] && echo yes || echo no)" "yes"
 chk "按源过滤（gameatlas）条数对" \
   "$(curl -s "$API/api/library/pool?source=gameatlas" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))')" \
   "$($PSQL -c "select count(*) from library_manifest where source='gameatlas' and missing_since is null")"
 
 echo "=== 4. 真 UI：池子页渲染 + 过滤 ==="
+# 先定成宽屏：窄屏时左栏在抽屉里，导航项不在 DOM（上一个脚本可能留下窄视口）
+$AB set viewport 1440 900 >/dev/null
 $AB open "$WEB" >/dev/null
 $AB wait 1200 >/dev/null
 $AB click ".side-links .side-link:nth-child(2)" >/dev/null

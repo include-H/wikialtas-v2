@@ -60,6 +60,52 @@ pub struct ScanReq {
     pub sources: Vec<String>,
 }
 
+/// 建档（池子 → 节点 + 链）。
+#[derive(Debug, Deserialize)]
+pub struct BuildLinkReq {
+    pub source: String,
+    pub external_id: String,
+    /// work | mix，缺省按容器种类（Emby 混杂库 = mix）。
+    #[serde(default)]
+    pub role: Option<String>,
+    /// 用户指定的父节点（不给就按落位规则：作品系列容器找/建系列，库容器进顶级）。
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+}
+
+impl BuildLinkReq {
+    pub fn into_build(self) -> Result<wikiatlas_store::library::BuildDoc, domain::Error> {
+        Ok(wikiatlas_store::library::BuildDoc {
+            source: domain::library::Source::parse(&self.source)?,
+            external_id: self.external_id,
+            role: self.role.as_deref().map(domain::library::LinkRole::parse).transpose()?,
+            parent_id: self.parent_id,
+            linked_by: domain::library::LinkedBy::Pool,
+        })
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct BuiltDocResp {
+    pub node: domain::Node,
+    pub link_id: Uuid,
+    /// 复用了同一容器下已有节点（还是新建的）——前端据此提示。
+    pub reused: bool,
+}
+
+/// 加一条「不要」（单条 / 整组二选一）。
+#[derive(Debug, Deserialize)]
+pub struct IgnoreReq {
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default)]
+    pub group_key: Option<String>,
+    #[serde(default)]
+    pub reason: String,
+}
+
 /// 清单 / 池子的查询参数。
 #[derive(Debug, Deserialize)]
 pub struct LibraryQuery {

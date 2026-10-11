@@ -4,6 +4,7 @@
 //! 规则写在类型与函数里、配单测——v1 的教训正是「规则写在 httpapi 里，没有测试基建」。
 
 pub mod library;
+pub mod place;
 pub mod sortkey;
 pub mod text;
 

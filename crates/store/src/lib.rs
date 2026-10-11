@@ -6,6 +6,8 @@
 pub mod content;
 pub mod jobs;
 pub mod library;
+pub mod link;
+pub mod manifest;
 pub mod nodes;
 pub mod secrets;
 

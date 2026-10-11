@@ -88,7 +88,7 @@ use axum::extract::Query;
 use serde_json::json;
 use wikiatlas_store::{jobs, secrets};
 
-use crate::dto::{LibraryQuery, ScanReq};
+use crate::dto::{BuildLinkReq, BuiltDocResp, IgnoreReq, LibraryQuery, ScanReq};
 
 pub async fn library_pool(
     State(pool): State<PgPool>,
@@ -141,4 +141,62 @@ pub async fn library_status(
     });
     let depth = jobs::queue_depth(&pool).await?;
     Ok(Json(json!({ "configured": configured, "queueDepth": depth })))
+}
+
+// ============================================================ 建档 / 解链 / 忽略（M2）
+
+/// POST /api/library/links：**原子**建【节点 + 链】（不建库、不联网，零 LLM）。
+pub async fn build_link(
+    State(pool): State<PgPool>,
+    Json(req): Json<BuildLinkReq>,
+) -> Result<Json<BuiltDocResp>, ApiError> {
+    let out = wikiatlas_store::library::build_doc(&pool, &req.into_build()?).await?;
+    Ok(Json(BuiltDocResp {
+        node: out.node,
+        link_id: out.link_id,
+        reused: out.reused,
+    }))
+}
+
+/// DELETE /api/library/links/{id}：**解链，保留文档**。返回文档节点 id（前端提示用）。
+pub async fn unlink(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let node_id = wikiatlas_store::library::unlink(&pool, id).await?;
+    Ok(Json(json!({ "nodeId": node_id })))
+}
+
+pub async fn list_ignores(
+    State(pool): State<PgPool>,
+) -> Result<Json<Vec<domain::library::Ignore>>, ApiError> {
+    Ok(Json(wikiatlas_store::library::list_ignores(&pool).await?))
+}
+
+pub async fn add_ignore(
+    State(pool): State<PgPool>,
+    Json(req): Json<IgnoreReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let source = req
+        .source
+        .as_deref()
+        .map(domain::library::Source::parse)
+        .transpose()?;
+    let id = wikiatlas_store::library::add_ignore(
+        &pool,
+        source,
+        req.external_id,
+        req.group_key,
+        &req.reason,
+    )
+    .await?;
+    Ok(Json(json!({ "id": id })))
+}
+
+pub async fn remove_ignore(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    wikiatlas_store::library::remove_ignore(&pool, id).await?;
+    Ok(Json(json!({ "ok": true })))
 }

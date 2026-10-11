@@ -216,6 +216,20 @@ impl PoolEntry {
     }
 }
 
+/// 一条「不要」（`library_ignores`，`docs/library-sync.md` §4）。
+/// 两种范围：忽略**单条**（`external_id`）/ 忽略**整组**（`group_key` = 容器键）。
+/// （第三种「别向某个节点提起这个条目」随建议系统走 M5。）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ignore {
+    pub id: uuid::Uuid,
+    pub source: Option<Source>,
+    pub external_id: Option<String>,
+    pub group_key: Option<String>,
+    pub reason: String,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// 一次源扫描的记账行（`scan_runs`）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanRun {

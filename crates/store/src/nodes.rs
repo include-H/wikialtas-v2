@@ -62,11 +62,26 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<Node> {
         .try_into()
 }
 
+/// 读一个节点（**调用方的事务里**）：`library::build_doc` 要在一个事务里读回刚复用/新建的节点。
+pub async fn get_in_tx(tx: &mut sqlx::PgConnection, id: Uuid) -> Result<Node> {
+    let sql = format!("SELECT {COLS} FROM nodes WHERE id = $1");
+    let row: Option<NodeRow> = sqlx::query_as(&sql).bind(id).fetch_optional(&mut *tx).await?;
+    row.ok_or_else(|| Error::Domain(domain::Error::NotFound(format!("节点 {id}"))))?
+        .try_into()
+}
+
 /// 建节点。`sort_key` 由 store 分配（放在同级末尾），所以**必须在事务里**读末尾再写。
 pub async fn create(pool: &PgPool, new: &NewNode) -> Result<Node> {
-    new.validate()?;
-
     let mut tx = pool.begin().await?;
+    let node = create_in_tx(&mut tx, new).await?;
+    tx.commit().await?;
+    Ok(node)
+}
+
+/// 建节点（**调用方的事务里**）。`library::build_doc` 要「建容器系列 + 建文档 + 挂链」
+/// 三件事同一个事务，所以把这段抽出来共用——避免两条建节点路径各写一遍规则。
+pub async fn create_in_tx(tx: &mut sqlx::PgConnection, new: &NewNode) -> Result<Node> {
+    new.validate()?;
 
     // 父节点必须在；顺便同一把咨询锁把「同一父下的并发建节点」串起来。
     // 用咨询锁而不是行锁，是因为根节点（parent_id IS NULL）没有行可锁。
@@ -112,6 +127,5 @@ pub async fn create(pool: &PgPool, new: &NewNode) -> Result<Node> {
         .await
         .map_err(|e| map_unique(e, "同级排序键已存在"))?;
 
-    tx.commit().await?;
     row.try_into()
 }

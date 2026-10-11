@@ -1,36 +1,31 @@
 import { useEffect, useMemo, useState } from 'react'
-import { App as AntApp, Alert, Button, Empty, Input, Segmented, Spin, Tag, Tooltip } from 'antd'
+import { App as AntApp, Alert, Button, Empty, Input, Segmented, Spin, Tag } from 'antd'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, type LibrarySource, type PoolEntry, type PoolQuery } from '../api'
+import { api, type LibrarySource, type PoolEntry, type PoolQuery } from '../../api'
+import BuildDocModal from './BuildDocModal'
+import IgnoresModal from './IgnoresModal'
+import PoolRow from './PoolRow'
+import { SOURCE_LABEL, SOURCE_TAG_COLOR, groupByContainer, relative } from './util'
 
 // 媒体库池子（`docs/features.md` §1–§2）：库状态仪表盘。
-// 全部数据来自清单（秒开，不实时轰库）；M1 只读——建档/挂链在 M2。
-const SOURCE_LABEL: Record<LibrarySource, string> = {
-  gameatlas: 'GameAtlas',
-  emby: 'Emby',
-  komga: 'Komga',
-}
-const KIND_LABEL: Record<string, string> = {
-  game: '游戏',
-  movie: '电影',
-  tv: '剧集',
-  book: '书',
-  collection: '合集',
-}
+// 数据全部来自清单（秒开，不实时轰库）；写操作只有「建档 / 解链 / 忽略」三件，全是人点的。
 type DocFilter = 'none' | 'has' | 'all'
 
 export default function PoolPanel() {
   const qc = useQueryClient()
-  const { message } = AntApp.useApp()
+  const { message, modal } = AntApp.useApp()
   const [source, setSource] = useState<'all' | LibrarySource>('all')
   const [docFilter, setDocFilter] = useState<DocFilter>('none')
   const [keyword, setKeyword] = useState('')
   const [polling, setPolling] = useState(false)
+  const [building, setBuilding] = useState<PoolEntry | null>(null)
+  const [ignoresOpen, setIgnoresOpen] = useState(false)
 
   const status = useQuery({ queryKey: ['library-status'], queryFn: api.libraryStatus })
   const runs = useQuery({ queryKey: ['library-scan-runs'], queryFn: api.libraryScanRuns })
+  const ignores = useQuery({ queryKey: ['library-ignores'], queryFn: api.libraryIgnores })
 
   const query: PoolQuery = {
     source: source === 'all' ? undefined : source,
@@ -46,6 +41,32 @@ export default function PoolPanel() {
     onSuccess: () => {
       message.info('已入队：扫描在 worker 里跑，跑完这里自动刷新')
       setPolling(true)
+    },
+    onError: (e: Error) => message.error(e.message),
+  })
+
+  const unlink = useMutation({
+    mutationFn: (linkId: string) => api.unlink(linkId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['library-pool'] })
+      qc.invalidateQueries({ queryKey: ['tree'] })
+      message.success('已解链——文档保留，只是不再挂在库条目上')
+    },
+    onError: (e: Error) => message.error(e.message),
+  })
+
+  const ignore = useMutation({
+    mutationFn: (p: { entry: PoolEntry; group: boolean }) =>
+      api.addIgnore({
+        source: p.entry.entry.source,
+        external_id: p.group ? undefined : p.entry.entry.external_id,
+        group_key: p.group ? p.entry.entry.container_key : undefined,
+        reason: '',
+      }),
+    onSuccess: (_r, p) => {
+      qc.invalidateQueries({ queryKey: ['library-pool'] })
+      qc.invalidateQueries({ queryKey: ['library-ignores'] })
+      message.success(p.group ? `已忽略整组：${p.entry.entry.container_title}` : '已忽略这一条')
     },
     onError: (e: Error) => message.error(e.message),
   })
@@ -67,7 +88,17 @@ export default function PoolPanel() {
 
   const groups = useMemo(() => groupByContainer(pool.data ?? [], keyword), [pool.data, keyword])
   const configured = status.data?.configured
-  const noneConfigured = configured && !configured.gameatlas && !configured.emby && !configured.komga
+  const noneConfigured = configured && !anyConfigured(configured)
+
+  const askIgnore = (p: PoolEntry, group: boolean) => {
+    modal.confirm({
+      title: group ? `忽略整组「${p.entry.container_title}」？` : `忽略「${p.entry.title}」？`,
+      content: '之后不再出现在池子里；可恢复（池子底部「已忽略」）。',
+      okText: '忽略',
+      cancelText: '算了',
+      onOk: () => ignore.mutateAsync({ entry: p, group }),
+    })
+  }
 
   return (
     <div className="pool">
@@ -76,9 +107,7 @@ export default function PoolPanel() {
           媒体库池子
           <span className="pool-title-sub">
             {pool.data ? `${pool.data.length} 条` : ''}
-            {runs.data?.[0]?.started_at
-              ? ` · 上次扫描 ${relative(runs.data[0].started_at)}`
-              : ' · 还没扫过'}
+            {runs.data?.[0]?.started_at ? ` · 上次扫描 ${relative(runs.data[0].started_at)}` : ' · 还没扫过'}
           </span>
         </div>
         <div className="pool-tools">
@@ -130,7 +159,7 @@ export default function PoolPanel() {
           showIcon
           style={{ margin: '0 16px 8px' }}
           message="三个源都还没配"
-          description="M1 的临时入口：密钥写 secrets 表（或设 WIKIATLAS_* 环境变量），设置页随 M9 落地。"
+          description="密钥写 secrets 表（或设 WIKIATLAS_* 环境变量），设置页随 M9 落地。"
         />
       )}
 
@@ -151,16 +180,29 @@ export default function PoolPanel() {
           groups.map((g) => (
             <section key={g.key} className="pool-group">
               <div className="pool-group-head">
-                <Tag color={g.source === 'gameatlas' ? 'blue' : g.source === 'emby' ? 'geekblue' : 'green'}>
-                  {SOURCE_LABEL[g.source]}
-                </Tag>
+                <Tag color={SOURCE_TAG_COLOR[g.source]}>{SOURCE_LABEL[g.source]}</Tag>
                 <span className="pool-group-title">{g.container_title}</span>
                 {g.container_kind === 'mixed' && <Tag color="orange">混杂</Tag>}
                 {g.role === 'mix' && <Tag color="orange">混杂位</Tag>}
                 <span className="pool-group-count">{g.entries.length} 条</span>
+                <span style={{ flex: 1 }} />
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => askIgnore(g.entries[0], true)}
+                  aria-label={`忽略整组 ${g.container_title}`}
+                >
+                  忽略整组
+                </Button>
               </div>
               {g.entries.map((p) => (
-                <PoolRow key={`${p.entry.source}:${p.entry.external_id}`} p={p} />
+                <PoolRow
+                  key={`${p.entry.source}:${p.entry.external_id}`}
+                  p={p}
+                  onBuild={() => setBuilding(p)}
+                  onIgnore={(group) => askIgnore(p, group)}
+                  onUnlink={() => p.link_id && unlink.mutate(p.link_id)}
+                />
               ))}
             </section>
           ))
@@ -169,101 +211,21 @@ export default function PoolPanel() {
 
       <footer className="pool-foot">
         {runs.data && runs.data.length > 0 && (
-          <span>
-            最近一次：{runs.data.map((r) => `${r.source} ${r.ok ? '✓' : '✗'}`).join(' · ')}
-          </span>
+          <span>最近一次：{runs.data.map((r) => `${r.source} ${r.ok ? '✓' : '✗'}`).join(' · ')}</span>
         )}
         <span style={{ flex: 1 }} />
-        <span>建档 / 挂链在 M2</span>
+        <Button type="link" size="small" onClick={() => setIgnoresOpen(true)}>
+          已忽略 {ignores.data?.length ?? 0}
+        </Button>
       </footer>
+
+      <BuildDocModal entry={building} open={building !== null} onClose={() => setBuilding(null)} />
+      <IgnoresModal open={ignoresOpen} onClose={() => setIgnoresOpen(false)} />
     </div>
   )
 }
 
-function PoolRow({ p }: { p: PoolEntry }) {
-  const e = p.entry
-  const hasDoc = p.link_id !== null
-  return (
-    <div className="pool-row">
-      <div className="pool-cover">
-        {e.cover_url ? (
-          <img src={e.cover_url} alt="" loading="lazy" />
-        ) : (
-          <span>{e.title.slice(0, 1)}</span>
-        )}
-      </div>
-      <div className="pool-row-main">
-        <div className="pool-row-title" title={e.title}>
-          {e.title}
-          {e.year && <span className="pool-year">{e.year}</span>}
-        </div>
-        <div className="pool-row-sub">
-          <Tag>{KIND_LABEL[e.kind] ?? e.kind}</Tag>
-          {e.format && <Tag>{e.format === 'novel' ? '小说' : '漫画'}</Tag>}
-          {e.extra && <span className="pool-extra">{e.extra}</span>}
-        </div>
-      </div>
-      <div className="pool-row-right">
-        {hasDoc ? (
-          <Tooltip title={p.node_title ? `已挂到：${p.node_title}` : '已挂链'}>
-            <Tag color="green">有文档</Tag>
-          </Tooltip>
-        ) : (
-          <Tag>无文档</Tag>
-        )}
-        {e.url && (
-          <a href={e.url} target="_blank" rel="noreferrer" className="pool-open">
-            打开
-          </a>
-        )}
-      </div>
-    </div>
-  )
-}
-
-interface Group {
-  key: string
-  source: LibrarySource
-  container_title: string
-  container_kind: string
-  role: string
-  entries: PoolEntry[]
-}
-
-/** 按「源 → 容器」分组；keyword 只过滤标题（本地过滤，清单已在手）。 */
-function groupByContainer(rows: PoolEntry[], keyword: string): Group[] {
-  const kw = keyword.trim().toLowerCase()
-  const kept = kw
-    ? rows.filter(
-        (p) =>
-          p.entry.title.toLowerCase().includes(kw) ||
-          p.entry.aliases.some((a) => a.toLowerCase().includes(kw)),
-      )
-    : rows
-  const map = new Map<string, Group>()
-  for (const p of kept) {
-    const key = `${p.entry.source}|${p.entry.container_key}`
-    let g = map.get(key)
-    if (!g) {
-      g = {
-        key,
-        source: p.entry.source,
-        container_title: p.entry.container_title,
-        container_kind: p.entry.container_kind,
-        role: p.role,
-        entries: [],
-      }
-      map.set(key, g)
-    }
-    g.entries.push(p)
-  }
-  return [...map.values()].sort((a, b) => b.entries.length - a.entries.length)
-}
-
-function relative(iso: string): string {
-  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const h = Math.round(min / 60)
-  return h < 24 ? `${h} 小时前` : `${Math.round(h / 24)} 天前`
+/** 至少配了一个源。 */
+function anyConfigured(c: Record<LibrarySource, boolean>): boolean {
+  return c.gameatlas || c.emby || c.komga
 }
