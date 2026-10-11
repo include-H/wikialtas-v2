@@ -171,6 +171,7 @@
 |---|---|---|
 | D51 | **Komga 卷/抽屉判型在扫描里只用确定性启发式**（零 LLM）；判歪的照进池子，等 M5/M7 的「AI 对一遍」（可选、产出建议、人确认）收敛 | `library-sync.md §1 §7` |
 | D52 | **Emby 混杂库**用 `app_settings.library.emby_mixed_views`（view id 或库名数组）标定，命中 → `container_kind=mixed`，条目落链 `role=mix`。**Emby/Komga 封面 M1 不落清单**（缩略图要带 token/api-key，落进清单就泄漏给前端）→ 封面代理端点随设置页（M9） | `library-sync.md §1 §2.4` |
+| D54 | run 的目标节点由**宿主注入提示词**（模型不猜 id），写工具再二次校验；**写类工单第一轮 `tool_choice=required`**（实测模型爱"把正文写在回复里"而不调工具），之后交回 `auto`。模型配置（base_url / key / model / effort / **context_window**）走 `secrets` 表 `llm.*`，窗口只有一个来源 | `backend.md §5 §6` · `behavior-notes.md §2 §5` |
 | D53 | 源密钥**唯一真相是 `secrets` 表**（`<source>.base_url` / `gameatlas.password` / `emby.token` / `komga.api_key`）；**M1 允许 `WIKIATLAS_*` 环境变量兜底**（设置页还没做），设置页落地后删掉兜底那一半。密钥值**绝不进任何 API DTO** | `database.md §4` / `library-sync.md §1` |
 
 ---

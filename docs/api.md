@@ -95,6 +95,12 @@
 
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
+| POST | `/api/runs` | 建工单 + 入队（跑活在 worker），返回 `{runId, jobId}` | ✅ M3 |
+| GET | `/api/runs/{id}/events` | SSE：`run_events` 按 seq 推；`?after=` 续传；run 终态即收流 | ✅ M3 |
+
+
+| 方法 | 路径 | 说明 | 状态 |
+|---|---|---|---|
 | GET | `/api/sessions` | 会话列表（一个文档 = 一个默认会话） | ⬜ |
 | POST | `/api/sessions` | 新会话（挂在节点 / 资料 / 全局） | ⬜ |
 | GET | `/api/sessions/{id}` | 会话详情 + 消息投影 | ⬜ |

@@ -188,6 +188,10 @@ v2 改为：**围栏不进正文编辑器**——文档面板装载时用 `split
 2. 增量替换流式帧时：**删除集不能为空**（BlockNote 源码取 `t[0].id` 会炸）、**纯追加走 insert**、**不能整篇重建**（会把所有动画重播）。
 3. Milkdown 必带 `clipboard`（粘贴按 markdown 解析）/ `history`（Ctrl+Z）/ `listener`（markdown 同步给宿主）——缺一个都会表现成"编辑器少块功能"（v2 已带，见 `editor/MarkdownEditor.tsx`）。
 
+> **M3 已落地**：右栏 Altas 接上真 run——发送 → `POST /api/runs` → `EventSource` 收 `wikiatlas.content.delta`
+> 实时显示正在写的正文（`ai-live`）+ 工具结果状态；**草稿的真相在服务端**，收流后刷节点
+> （`docs/api.md §4.3`：断线从服务端草稿重新基线）。落块动画 / live-tail 仍待做（TRACKING §3.1）。
+
 > **M1/M2 已落地**：左栏全局导航第二项「媒体库池子」= 池子视图（`frontend/src/panels/pool/`）——
 > 源 / 有无文档 / 关键词三档过滤 + 「扫描媒体库」（只入队，轮询队列深度，跑完自动刷新）；
 > 每条「建档」（弹窗可覆盖父节点 / 正片位·混杂位，默认按容器自动落位）/「解链」（保留文档）/「忽略单条·整组」，

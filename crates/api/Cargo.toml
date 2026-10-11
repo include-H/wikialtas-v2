@@ -5,8 +5,11 @@ edition.workspace = true
 
 [dependencies]
 wikiatlas-domain = { path = "../domain" }
+wikiatlas-agent = { path = "../agent" }
 wikiatlas-store = { path = "../store" }
 anyhow = { workspace = true }
+async-stream = { workspace = true }
+futures-core = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }

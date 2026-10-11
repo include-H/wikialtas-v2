@@ -5,5 +5,23 @@
 //!
 //! **动这一层之前先读 `docs/behavior-notes.md`**（头号风险：v1 调出来的行为知识会丢）。
 
+pub mod client;
 pub mod guard;
+pub mod runtime;
+pub mod sse;
 pub mod stream;
+
+use thiserror::Error;
+
+/// agent 层的错误。**消息可能进 `runs.error_json`，所以不许带密钥。**
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("模型调用失败：{0}")]
+    Llm(String),
+    #[error("工单状态不对：{0}")]
+    RunState(String),
+    #[error("存储错误：{0}")]
+    Store(#[from] wikiatlas_store::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

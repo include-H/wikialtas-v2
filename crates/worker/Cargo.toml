@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+wikiatlas-agent = { path = "../agent" }
 wikiatlas-domain = { path = "../domain" }
 wikiatlas-sources = { path = "../sources" }
 wikiatlas-store = { path = "../store" }

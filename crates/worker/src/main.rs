@@ -47,7 +47,34 @@ async fn main() -> anyhow::Result<()> {
 async fn dispatch(pool: &sqlx::PgPool, job: &jobs::Job) -> (bool, String) {
     match job.kind.as_str() {
         "scan" => run_scan(pool, &job.payload).await,
+        "run" => run_agent(pool, &job.payload).await,
         other => (false, format!("工单类型 {other} 还没实现（见 docs/TRACKING.md 里程碑）")),
+    }
+}
+
+/// `run` 工单：加载模型配置 → 跑执行器。
+/// 没配模型（`secrets: llm.base_url / llm.api_key`）就明确失败，**不假装跑过**。
+async fn run_agent(pool: &sqlx::PgPool, payload: &serde_json::Value) -> (bool, String) {
+    let run_id = payload.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+    if run_id.is_empty() {
+        return (false, "run 工单没带 run_id".into());
+    }
+    let cfg = match wikiatlas_agent::client::LlmConfig::load(pool).await {
+        Ok(Some(c)) => c,
+        Ok(None) => return (false, "没配模型：secrets 里补 llm.base_url / llm.api_key".into()),
+        Err(e) => return (false, format!("读模型配置失败：{e}")),
+    };
+    match wikiatlas_agent::runtime::execute(pool, &cfg, run_id).await {
+        Ok(s) => (
+            true,
+            format!(
+                "{}（草稿{}，{} 轮）",
+                s.status,
+                if s.draft_written { "已落" } else { "没落" },
+                s.iterations
+            ),
+        ),
+        Err(e) => (false, e.to_string()),
     }
 }
 

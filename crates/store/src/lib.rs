@@ -9,6 +9,7 @@ pub mod library;
 pub mod link;
 pub mod manifest;
 pub mod nodes;
+pub mod runs;
 pub mod secrets;
 
 use sqlx::postgres::PgPoolOptions;

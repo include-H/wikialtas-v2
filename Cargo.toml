@@ -8,6 +8,8 @@ version = "0.1.0"
 
 [workspace.dependencies]
 anyhow = "1"
+async-stream = "0.3"
+futures-core = "0.3"
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -21,7 +23,7 @@ sqlx = { version = "0.8", default-features = false, features = [
   "migrate",
   "macros",
 ] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "cookies"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }

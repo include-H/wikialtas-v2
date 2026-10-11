@@ -54,6 +54,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/library/links/{id}", delete(routes::unlink))
         .route("/api/library/ignores", get(routes::list_ignores).post(routes::add_ignore))
         .route("/api/library/ignores/{id}", delete(routes::remove_ignore))
+        // 工单 / SSE（M3）
+        .route("/api/runs", post(routes::create_run))
+        .route("/api/runs/{id}/events", get(routes::run_events))
         // 仅开发：放行本地前端（Vite）。上线前收紧成白名单。
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

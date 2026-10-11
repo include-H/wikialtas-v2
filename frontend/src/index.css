@@ -813,3 +813,54 @@ body {
   color: var(--ant-color-text);
   font-size: 14px;
 }
+
+/* Altas 的对话区（M3）：模型说话 + 正在写的草稿 */
+
+.ai-say {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.ai-live {
+  align-self: stretch;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ai-live-head {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.ai-live-body {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 46vh;
+  overflow: auto;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-foot-hint {
+  flex: 1;
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+}

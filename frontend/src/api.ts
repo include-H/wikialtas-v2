@@ -131,6 +131,11 @@ export interface Ignore {
   created_at: string
 }
 
+export interface CreateRunResp {
+  runId: string
+  jobId: number
+}
+
 export interface PoolQuery {
   source?: LibrarySource
   container?: string
@@ -227,6 +232,13 @@ export const api = {
 
   removeIgnore: (id: string) =>
     fetch(`/api/library/ignores/${id}`, { method: 'DELETE' }).then(toJson<{ ok: boolean }>),
+
+  createRun: (req: { node_id: string; prompt: string; intent?: string }) =>
+    fetch('/api/runs', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(req),
+    }).then(toJson<CreateRunResp>),
 
   libraryScan: (sources?: LibrarySource[]) =>
     fetch('/api/library/scan', {

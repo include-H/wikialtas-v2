@@ -106,6 +106,22 @@ pub struct IgnoreReq {
     pub reason: String,
 }
 
+/// 起一条工单（M3：只做「照这段话说，去写这个节点的正文」）。
+#[derive(Debug, Deserialize)]
+pub struct CreateRunReq {
+    pub node_id: Uuid,
+    pub prompt: String,
+    #[serde(default)]
+    pub intent: Option<String>,
+}
+
+/// SSE 续传的游标。
+#[derive(Debug, Deserialize)]
+pub struct AfterQuery {
+    #[serde(default)]
+    pub after: i32,
+}
+
 /// 清单 / 池子的查询参数。
 #[derive(Debug, Deserialize)]
 pub struct LibraryQuery {

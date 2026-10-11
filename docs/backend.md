@@ -215,4 +215,14 @@ bash scripts/layout-check.sh    # 32 项：三档视口 + 触底 + 窄屏抽屉�
 - API：`POST /api/library/links` · `DELETE /api/library/links/{id}` · `GET/POST /api/library/ignores` · `DELETE /api/library/ignores/{id}`。
 - 前端：池子行「建档」（父节点 / 正片位·混杂位可覆盖，默认按容器自动）/「解链」/「忽略（单条·整组）」+「已忽略」恢复入口。
 
-**下一步（M3 尖刺 B）**：run 执行器 + `response.*` 事件流 + SSE 投影 + 一个写工具落草稿。**动 AI 之前先通读 `behavior-notes.md`**（头号风险：v1 调出来的行为知识会丢）。
+**已落地（M3：Agent 内核 / 尖刺 B）**
+
+- `agent::client`：自写 Responses API 客户端（SSE 拆帧器 + 事件映射）。实测事件名：`response.output_item.added`（`item.type=function_call` 带 `name`/`call_id`）· `response.function_call_arguments.delta/done` · `response.output_text.delta` · `response.completed`。请求只发一次配置（**窗口只有一个来源**）。
+- `agent::runtime`：run 执行器。第一轮 `tool_choice=required`（实测模型爱"把正文写在回复里"而不调工具）；目标节点 id 由**宿主注入**到 user 文本（模型不该猜 id）；正文边流边 `put_draft`（200ms 节流），收尾由工具调用落最终稿；工具循环上限 6 轮；`run_events` 是 SSE 的真相源。
+- `agent::stream` / `agent::guard`：见 M3 起步那一条（增量 JSON 状态机 + 五条护栏）。
+- `store::runs`：`runs` / `run_events` / `sessions` / `session_messages`（v1 形状原样搬，append-only）。
+- worker 认领 `run` 工单；**没配模型就明确失败**（不假装跑过）。
+- API：`POST /api/runs`（建工单 + 入队）+ `GET /api/runs/{id}/events`（SSE）。
+- 前端：Altas 右栏真接上——发送 → SSE → 实时正文 + 工具结果状态 → 收工刷节点。
+
+**下一步（M4 写作与质量门）**：两步式（analysis→generation，`ai.md §4`）+ `prompts.md §2.3` 的写作流程 + 质量门（代码）→ 目标是把正文写到 **`/root/Game_Wiki` 那一档**（D3），再过门 → 定稿 → 快照。

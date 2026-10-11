@@ -88,7 +88,7 @@ use axum::extract::Query;
 use serde_json::json;
 use wikiatlas_store::{jobs, secrets};
 
-use crate::dto::{BuildLinkReq, BuiltDocResp, IgnoreReq, LibraryQuery, ScanReq};
+use crate::dto::{AfterQuery, BuildLinkReq, BuiltDocResp, CreateRunReq, IgnoreReq, LibraryQuery, ScanReq};
 
 pub async fn library_pool(
     State(pool): State<PgPool>,
@@ -199,4 +199,77 @@ pub async fn remove_ignore(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     wikiatlas_store::library::remove_ignore(&pool, id).await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+// ============================================================ 工单 / SSE（M3）
+
+/// POST /api/runs：**建工单 + 入队**（跑活在 worker；`docs/backend.md §1`）。
+pub async fn create_run(
+    State(pool): State<PgPool>,
+    Json(req): Json<CreateRunReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // 目标节点必须在（早失败，别让 worker 里才报）
+    let node = wikiatlas_store::nodes::get(&pool, req.node_id).await?;
+    let cfg = wikiatlas_agent::client::LlmConfig::load(&pool).await.unwrap_or(None);
+    let model = cfg.map(|c| c.model).unwrap_or_else(|| "未配置".into());
+    let run_id = format!("run:{}", Uuid::now_v7());
+    wikiatlas_store::runs::create(
+        &pool,
+        &wikiatlas_store::runs::NewRun {
+            id: run_id.clone(),
+            workspace: "default".into(),
+            intent: req.intent.unwrap_or_else(|| "写正文".into()),
+            goal: req.prompt,
+            model,
+            checkpoint: json!({ "node_id": node.id }),
+        },
+    )
+    .await?;
+    let job_id = jobs::enqueue(&pool, "run", &json!({ "run_id": run_id })).await?;
+    Ok(Json(json!({ "runId": run_id, "jobId": job_id })))
+}
+
+/// GET /api/runs/{id}/events：SSE。**事件是从 `run_events` 轮询出来的**——
+/// api 与 worker 只共用 PG，不共享内存（`docs/backend.md §1` 的纪律）。
+pub async fn run_events(
+    State(pool): State<PgPool>,
+    Path(id): Path<String>,
+    Query(q): Query<AfterQuery>,
+) -> Result<
+    axum::response::sse::Sse<
+        impl futures_core::Stream<
+            Item = std::result::Result<axum::response::sse::Event, std::convert::Infallible>,
+        >,
+    >,
+    ApiError,
+> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use std::time::Duration;
+    wikiatlas_store::runs::get(&pool, &id).await?; // 不存在就 404
+
+    let stream = async_stream::stream! {
+        let mut cursor = q.after;
+        loop {
+            let evs = wikiatlas_store::runs::events_after(&pool, &id, cursor)
+                .await
+                .unwrap_or_default();
+            let n = evs.len();
+            for e in evs {
+                cursor = e.seq;
+                let data = json!({ "seq": e.seq, "type": e.r#type, "payload": e.payload });
+                if let Ok(ev) = Event::default().event(e.r#type).json_data(data) {
+                    yield Ok(ev);
+                }
+            }
+            if n == 0 {
+                if let Ok(run) = wikiatlas_store::runs::get(&pool, &id).await {
+                    if matches!(run.status.as_str(), "completed" | "failed" | "cancelled") {
+                        break;
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    };
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
