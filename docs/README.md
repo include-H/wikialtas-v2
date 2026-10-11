@@ -86,7 +86,7 @@
 |---|---|---|
 | D1 | WikiAtlas = 媒体库文档层；**一个库条目 ↔ 一篇文档**；WikiAtlas 是真源，定稿反哺回库 | `features.md §0` |
 | D2 | **不迁 v1 数据**，v2 从空库起；种子数据用 `skills/samples/` 的 18 篇基准 | `backend.md §10` |
-| D3 | 「写得好」= 18 篇基准的**整体质量与信息密度**同一水平，不是逐处无瑕；技能与基准**双向对齐** | `skills.md §5` |
+| D3 | 「写得好」分两层：**规则层** = `skills/samples/`（18 篇手写基准，与技能**双向对齐**）；**产出层** = **`/root/Game_Wiki` 的真产出**（Altas 按本技能集生成、随生产增长）。**V2 的 Altas 产出必须达到 Game_Wiki 这一档**，Game_Wiki 兼作产出回归语料 | `skills.md §5` · `eval-cases.md` |
 | D4 | 明确不做：多租户 / 权限组 / 发布工作流 / IM 机器人 / 桌面打包 / Obsidian 兼容 / 移动端 / 多语言界面 | `features.md §10` |
 | D5 | 访问控制 = 单一访问密码 + 节点级 public/private（沿用 v1 语义）；**默认 private** | `database.md §2` |
 

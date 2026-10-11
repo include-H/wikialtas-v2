@@ -41,6 +41,7 @@
 |---|---|
 | 文档冻结 | ✅ 全部 16 篇已冻结（决策 D1–D50 无"待定"） |
 | 代码基线 | ✅ M0（`crates/{domain,store,api}` + `frontend/` 骨架 + 尖刺 A） |
+| 产出基准 | **规则** = `/root/WikiAltas/skills`（14 技能 + `samples/` 18 篇）；**质量目标** = `/root/Game_Wiki` 真产出（D3） |
 | 当前里程碑 | **M1 媒体库进料** |
 | 下一步（唯一） | M1：`sources` crate（三源客户端 + 清单 + `scan_runs`）+ 池子 API/UI |
 | 阻塞项 | 无 |
@@ -59,7 +60,7 @@
 | **M1 媒体库进料** | ⬜ | `library-sync.md §1–3` | 真库（192.168.1.4）扫三源 → 清单进 `library_manifest` → 池子列出"有/无文档" |
 | **M2 建档与关联** | ⬜ | `library-sync.md §2 §4` | 池子点一条 → 树出节点 + 链 active；解链保留文档；撞名加介质后缀 |
 | **M3 Agent 内核**（尖刺 B） | ⬜ | `backend.md §5 §6` · `behavior-notes.md` | 真跑一次 run：流式正文投影 + 一个写工具 → SSE 到浏览器 → 草稿落库 |
-| **M4 写作与质量门** | ⬜ | `ai.md §4` · `prompts.md §3` · `tools.md §2` | 空库跑一篇同构正文 → 过质量门 → 定稿 → 快照生成 |
+| **M4 写作与质量门** | ⬜ | `ai.md §4` · `prompts.md §2.3 §3` · `tools.md §2` · **D3** | 空库跑一篇 → **达到 `/root/Game_Wiki` 质量档**（同骨架/密度/证据落点）→ 过质量门 → 定稿 → 快照 |
 | **M5 关系与综合** | ⬜ | `features.md §6.5` · `tools.md §2` | 综合页挂关系 → 关联展示 → 索引页由宿主更新 |
 | **M6 Review 与体检** | ⬜ | `ai.md §9` · `features.md §6` | 制造孤立节点/失效链/定稿未反哺 → 体检列出 → Review 可裁决 |
 | **M7 反哺与失效重挂** | ⬜ | `library-sync.md §5 §6` | 定稿 → GA/Komga 收到；停一个库条目 → 链 stale + 重挂候选 |
@@ -116,5 +117,6 @@
 | 日期 | 里程碑 | 做了什么 | 证据 |
 |---|---|---|---|
 | 2026-10-11 | 仓库 | 删除旧 `.git` 并重新 init：排除外部参考仓库与运行时数据后做首次提交（376 文件 / ~5.3MB）；`origin` 指回 Gitea | `git log` 单一提交；工作树干净 |
+| 2026-10-11 | 基准 | 确立两层产出基准（D3）：规则层 `skills/samples`（18 篇）、**产出层 `/root/Game_Wiki` 真产出（36 篇）**；写作流程镜像 `WRITING-BRIEF.md`（`prompts.md §2.3`）；纠正技能命名（保持现状） | `README.md §3 D3` · `skills.md §5` |
 | 2026-10-11 | 文档 | 冻结全部决策（D1–D50，收敛所有"待定"）；产出全套 16 篇开发文档；从 v1 与 `nashsu/llm_wiki` 提炼行为知识清单；确认前端"展示照 v1、实现换 AntD/Milkdown"，补全首页与编辑器（`frontend.md §2.2 §5.5`）；建立本追踪文件 | `docs/` 全部文件；本文件 |
 | 2026-10 | M0 | 已有：`domain`/`store`/`api` 三层 + 前端骨架 + 尖刺 A（人的编辑与存储） | `backend.md §11` |
