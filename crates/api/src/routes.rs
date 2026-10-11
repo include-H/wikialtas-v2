@@ -81,3 +81,64 @@ pub async fn versions(
             .collect(),
     ))
 }
+
+// ============================================================ 媒体库（M1）
+
+use axum::extract::Query;
+use serde_json::json;
+use wikiatlas_store::{jobs, secrets};
+
+use crate::dto::{LibraryQuery, ScanReq};
+
+pub async fn library_pool(
+    State(pool): State<PgPool>,
+    Query(q): Query<LibraryQuery>,
+) -> Result<Json<Vec<domain::library::PoolEntry>>, ApiError> {
+    let f = q.into_filter()?;
+    Ok(Json(wikiatlas_store::library::list_pool(&pool, &f).await?))
+}
+
+pub async fn library_manifest(
+    State(pool): State<PgPool>,
+    Query(q): Query<LibraryQuery>,
+) -> Result<Json<Vec<domain::library::ManifestRow>>, ApiError> {
+    let f = q.into_filter()?;
+    Ok(Json(wikiatlas_store::library::list_manifest(&pool, &f).await?))
+}
+
+/// POST /api/library/scan：**只入队**（扫描在 worker 里跑，见 docs/backend.md §1）。
+pub async fn library_scan(
+    State(pool): State<PgPool>,
+    body: Option<Json<ScanReq>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let sources = body.map(|Json(b)| b.sources).unwrap_or_default();
+    // 空数组 = 扫全部已配置的源：payload 里干脆不放 sources 键（worker 按缺失处理）。
+    let payload = if sources.is_empty() {
+        json!({})
+    } else {
+        json!({ "sources": sources })
+    };
+    let id = jobs::enqueue(&pool, "scan", &payload).await?;
+    Ok(Json(json!({ "jobId": id })))
+}
+
+pub async fn library_scan_runs(
+    State(pool): State<PgPool>,
+) -> Result<Json<Vec<domain::library::ScanRun>>, ApiError> {
+    Ok(Json(wikiatlas_store::library::list_scan_runs(&pool, 50).await?))
+}
+
+/// 池子页顶部：哪些源配好了（**只有布尔，没有值**）+ 队列里还有没有活。
+pub async fn library_status(
+    State(pool): State<PgPool>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let keys = secrets::list_keys(&pool).await?;
+    let has = |k: &str| keys.iter().any(|x| x == k);
+    let configured = json!({
+        "gameatlas": has("gameatlas.base_url") && has("gameatlas.password"),
+        "emby": has("emby.base_url") && has("emby.token"),
+        "komga": has("komga.base_url") && has("komga.api_key"),
+    });
+    let depth = jobs::queue_depth(&pool).await?;
+    Ok(Json(json!({ "configured": configured, "queueDepth": depth })))
+}

@@ -4,7 +4,10 @@
 //! v1 的 `CreateDoc` 是三次裸 Exec、`PatchWork` 是七条独立 UPDATE，崩在中间就半截。
 
 pub mod content;
+pub mod jobs;
+pub mod library;
 pub mod nodes;
+pub mod secrets;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

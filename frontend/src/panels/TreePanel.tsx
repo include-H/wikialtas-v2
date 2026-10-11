@@ -84,7 +84,7 @@ function buildTree(nodes: Node[], keyword: string): RawNode[] {
 export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = {}) {
   const qc = useQueryClient()
   const { message } = AntApp.useApp()
-  const { selectedId, select } = useUi()
+  const { selectedId, select, view, setView } = useUi()
   const [open, setOpen] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [form] = Form.useForm()
@@ -125,10 +125,24 @@ export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = 
 
       {/* v1 的全局导航。后两项 WikiAtlas 还没做——**明确禁用**，不做假入口 */}
       <nav className="side-links">
-        <div className="side-link is-active">主页</div>
-        <Tooltip title="还没做" placement="right">
-          <div className="side-link is-disabled">媒体库建议</div>
-        </Tooltip>
+        <div
+          className={`side-link${view === 'doc' ? ' is-active' : ''}`}
+          onClick={() => {
+            setView('doc')
+            onNavigate?.()
+          }}
+        >
+          主页
+        </div>
+        <div
+          className={`side-link${view === 'pool' ? ' is-active' : ''}`}
+          onClick={() => {
+            setView('pool')
+            onNavigate?.()
+          }}
+        >
+          媒体库池子
+        </div>
       </nav>
 
       <div className="side-section-head" style={{ display: 'flex', alignItems: 'center' }}>
@@ -164,7 +178,10 @@ export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = 
               // antd 的 Tree 里点「已选中」的节点会反选，onSelect 给的是空数组。
               // 那不该把文档清空——空选时保持当前节点。
               const id = keys[0] as string | undefined
-              if (id) select(id)
+              if (id) {
+                select(id)
+                setView('doc')
+              }
               // 窄屏时树在抽屉里：无论是不是反选，都让位给正文
               onNavigate?.()
             }}

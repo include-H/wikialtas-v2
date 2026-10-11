@@ -165,6 +165,14 @@
 | D49 | 备份：`pg_dump` 定时 + 迁移前后各一次；导出/导入项目整个树 | `database.md §6` |
 | D50 | 成本可见：每次工单 token/成本可见；批量上限；定稿反哺幂等避免重复成本 | `ai.md §11` |
 
+### 3.8 实现期补充（M1 落地时拍板，追加不改前面的）
+
+| # | 裁决 | 详 |
+|---|---|---|
+| D51 | **Komga 卷/抽屉判型在扫描里只用确定性启发式**（零 LLM）；判歪的照进池子，等 M5/M7 的「AI 对一遍」（可选、产出建议、人确认）收敛 | `library-sync.md §1 §7` |
+| D52 | **Emby 混杂库**用 `app_settings.library.emby_mixed_views`（view id 或库名数组）标定，命中 → `container_kind=mixed`，条目落链 `role=mix`。**Emby/Komga 封面 M1 不落清单**（缩略图要带 token/api-key，落进清单就泄漏给前端）→ 封面代理端点随设置页（M9） | `library-sync.md §1 §2.4` |
+| D53 | 源密钥**唯一真相是 `secrets` 表**（`<source>.base_url` / `gameatlas.password` / `emby.token` / `komga.api_key`）；**M1 允许 `WIKIATLAS_*` 环境变量兜底**（设置页还没做），设置页落地后删掉兜底那一半。密钥值**绝不进任何 API DTO** | `database.md §4` / `library-sync.md §1` |
+
 ---
 
 ## 4. 开发路线图（里程碑 · 每步可独立验收）

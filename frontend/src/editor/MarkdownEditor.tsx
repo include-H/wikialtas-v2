@@ -146,9 +146,16 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
   readOnlyRef.current = !!readOnly
 
   // 这三块 DOM 交给 Milkdown 的 provider 定位/显隐，React 用 portal 往里渲染。
-  const [toolbarEl] = useState(() => document.createElement('div'))
-  const [slashEl] = useState(() => document.createElement('div'))
-  const [blockEl] = useState(() => document.createElement('div'))
+  // 三个浮层 portal 到 body。给它们一个类名，好让 CSS 把它们钉成 fixed 挂点——
+  // 否则它们是 body 里的静态块，会凭空撑出页面纵向滚动（见 editor.css `.editor-portal`）。
+  const makePortalHost = () => {
+    const el = document.createElement('div')
+    el.className = 'editor-portal'
+    return el
+  }
+  const [toolbarEl] = useState(makePortalHost)
+  const [slashEl] = useState(makePortalHost)
+  const [blockEl] = useState(makePortalHost)
   const blockProvider = useRef<BlockProvider | null>(null)
 
   const { loading, get } = useEditor(
@@ -164,7 +171,8 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
             onChangeRef.current(markdown)
           })
-          ctx.set(toolbarSpec.key, {
+          // 用 inject：$ctx 切片不会自动注册，set 会 "Context ... not found"。
+          ctx.inject(toolbarSpec.key, {
             view: () => {
               const provider = new TooltipProvider({
                 content: toolbarEl,
@@ -174,7 +182,7 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
               return { update: provider.update, destroy: provider.destroy }
             },
           })
-          ctx.set(slashSpec.key, {
+          ctx.inject(slashSpec.key, {
             view: () => {
               const provider = new SlashProvider({
                 content: slashEl,
@@ -187,7 +195,7 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
               return { update: provider.update, destroy: provider.destroy }
             },
           })
-          ctx.set(blockSpec.key, {
+          ctx.inject(blockSpec.key, {
             view: () => {
               const provider = new BlockProvider({
                 ctx,

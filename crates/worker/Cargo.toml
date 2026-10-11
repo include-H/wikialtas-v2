@@ -1,0 +1,15 @@
+[package]
+name = "wikiatlas-worker"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wikiatlas-domain = { path = "../domain" }
+wikiatlas-sources = { path = "../sources" }
+wikiatlas-store = { path = "../store" }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

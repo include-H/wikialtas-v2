@@ -19,6 +19,8 @@ vite.config.ts.timestamp-*
 
 # 本地数据
 data/
+# e2e 截图基线（脚本生成，用来肉眼比对）
+_baseline/
 *.db
 *.db-wal
 *.db-shm

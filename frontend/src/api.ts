@@ -57,6 +57,64 @@ export interface Version {
   summary: string
 }
 
+// ---- 媒体库（M1）：清单 / 池子 / 扫描 ----
+
+export type LibrarySource = 'gameatlas' | 'emby' | 'komga'
+export type ContainerKind = 'series' | 'library' | 'mixed'
+export type LinkRole = 'work' | 'mix'
+
+export interface ManifestRow {
+  source: LibrarySource
+  external_id: string
+  title: string
+  subtitle: string | null
+  aliases: string[]
+  year: number | null
+  kind: string
+  format: string | null
+  cover_url: string | null
+  url: string | null
+  container_key: string
+  container_title: string
+  container_kind: ContainerKind
+  extra: string
+  content_hash: string
+  seen_at: string
+  first_seen_at: string
+  missing_since: string | null
+}
+
+export interface PoolEntry {
+  entry: ManifestRow
+  link_id: string | null
+  node_id: string | null
+  node_title: string | null
+  node_kind: string | null
+  role: LinkRole
+}
+
+export interface ScanRun {
+  id: number
+  source: LibrarySource
+  started_at: string
+  finished_at: string | null
+  ok: boolean | null
+  stats: { seen?: number; inserted?: number; changed?: number; unchanged?: number; missing?: number }
+  message: string
+}
+
+export interface LibraryStatus {
+  configured: Record<LibrarySource, boolean>
+  queueDepth: number
+}
+
+export interface PoolQuery {
+  source?: LibrarySource
+  container?: string
+  has_doc?: boolean
+  include_missing?: boolean
+}
+
 export interface CreateNodeReq {
   parent_id?: string | null
   kind: NodeKind
@@ -115,4 +173,26 @@ export const api = {
     }).then(toJson<CommitResp>),
 
   versions: (id: string) => fetch(`/api/nodes/${id}/versions`).then(toJson<Version[]>),
+
+  libraryPool: (q: PoolQuery = {}) =>
+    fetch(`/api/library/pool${qs({ ...q })}`).then(toJson<PoolEntry[]>),
+
+  libraryStatus: () => fetch('/api/library/status').then(toJson<LibraryStatus>),
+
+  libraryScanRuns: () => fetch('/api/library/scan-runs').then(toJson<ScanRun[]>),
+
+  libraryScan: (sources?: LibrarySource[]) =>
+    fetch('/api/library/scan', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(sources && sources.length ? { sources } : {}),
+    }).then(toJson<{ jobId: number }>),
+}
+
+/** 拼查询串：undefined 直接丢掉（后端的 Option 靠"参数缺失"表示不过滤）。 */
+function qs(q: Record<string, unknown>): string {
+  const parts = Object.entries(q)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+  return parts.length ? `?${parts.join('&')}` : ''
 }

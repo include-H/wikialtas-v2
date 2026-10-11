@@ -29,7 +29,11 @@ export default function Epigraph({
 
   useEffect(() => setDraft(fence), [fence])
 
-  const inner = fence.replace(/^:::epigraph[ \t]*\n/, '').replace(/\n:::[ \t]*\n?$/, '')
+  // 收尾的 `:::` 之后可能还跟着空行（splitDoc 会把它们留在围栏里，保证往返不丢），
+  // 所以这里要吃掉尾随空白，否则 `:::` 会漏成正文一行、署名也认不出来。
+  const inner = fence
+    .replace(/^:::epigraph[ \t]*\r?\n/, '')
+    .replace(/\r?\n:::[ \t]*\s*$/, '')
   const { lines, author } = parseEpigraph(inner)
 
   return (

@@ -3,6 +3,7 @@
 //! 纪律（`docs/backend.md` §3）：这一层不依赖 sqlx / axum / tokio；
 //! 规则写在类型与函数里、配单测——v1 的教训正是「规则写在 httpapi 里，没有测试基建」。
 
+pub mod library;
 pub mod sortkey;
 pub mod text;
 
@@ -11,20 +12,20 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// 把「枚举 ↔ 数据库里的小写字符串」的样板收进一处，免得四处漏写法漂移。
+#[macro_export]
 macro_rules! str_enum {
     ($name:ident { $($variant:ident => $s:literal),+ $(,)? }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        pub enum $name { $($variant),+ }
+        pub enum $name { $(#[serde(rename = $s)] $variant),+ }
 
         impl $name {
             pub fn as_str(self) -> &'static str {
                 match self { $($name::$variant => $s),+ }
             }
-            pub fn parse(s: &str) -> std::result::Result<Self, Error> {
+            pub fn parse(s: &str) -> std::result::Result<Self, $crate::Error> {
                 match s {
                     $($s => Ok($name::$variant),)+
-                    other => Err(Error::Validation(format!("未知取值：{other}"))),
+                    other => Err($crate::Error::Validation(format!("未知取值：{other}"))),
                 }
             }
         }
@@ -36,7 +37,7 @@ macro_rules! str_enum {
         }
 
         impl std::str::FromStr for $name {
-            type Err = Error;
+            type Err = $crate::Error;
             fn from_str(s: &str) -> std::result::Result<Self, Self::Err> { Self::parse(s) }
         }
     };

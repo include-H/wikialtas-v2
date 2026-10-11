@@ -62,3 +62,18 @@
   padding: 4px 10px;
   border: 1px solid var(--ant-color-border);
 }
+
+/* 浮层宿主：工具栏 / 斜杠菜单 / 块手柄都由 createPortal 挂到 body。
+   它们是 fixed 的挂点，**绝不能参与 body 的布局**——否则页面会凭空多出一条
+   纵向滚动（`scripts/layout-check.sh` 的「长正文下页面仍不滚」就盯这个）。
+   收起态（data-show="false"）直接隐藏。 */
+.editor-portal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+}
+
+.editor-portal[data-show='false'] {
+  display: none;
+}

@@ -22,6 +22,13 @@
 
 ## 1. 三源客户端
 
+> **M1 已落地**（`crates/sources`）：GA `POST /api/auth/login`（密码→Cookie）→ `GET /api/games/all`；
+> Emby `GET /Users`（挑管理员）→ `/Users/{uid}/Views` → `/Users/{uid}/Items`（递归翻页）；
+> Komga `GET /api/v1/series` + `/series/{id}/books`（翻页）。
+> 密钥键名：`gameatlas.base_url` / `gameatlas.password` / `emby.base_url` / `emby.token` /
+> `komga.base_url` / `komga.api_key`（`secrets` 表；M1 另有 `WIKIATLAS_*` 环境变量兜底，见 D53）。
+> Emby 混杂库名单：`app_settings.library.emby_mixed_views`（见 D52）。
+
 | 源 | 认证 | 载体 | 方向 | 客户端要点 |
 |---|---|---|---|---|
 | **GameAtlas** | 管理员会话 cookie（登录表单换取） | game | 双向（读清单 + 反哺正文） | 读系列成员；写 `PUT /api/games/{id}/wiki` |

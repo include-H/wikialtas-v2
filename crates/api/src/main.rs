@@ -43,6 +43,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/nodes/{id}/draft", put(routes::put_draft))
         .route("/api/nodes/{id}/commit", post(routes::commit))
         .route("/api/nodes/{id}/versions", get(routes::versions))
+        // 媒体库（M1）：清单 / 池子 / 扫描入队 / 扫描记账
+        .route("/api/library/pool", get(routes::library_pool))
+        .route("/api/library/manifest", get(routes::library_manifest))
+        .route("/api/library/scan", post(routes::library_scan))
+        .route("/api/library/scan-runs", get(routes::library_scan_runs))
+        .route("/api/library/status", get(routes::library_status))
         // 仅开发：放行本地前端（Vite）。上线前收紧成白名单。
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

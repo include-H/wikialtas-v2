@@ -76,9 +76,9 @@
 
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
-| POST | `/api/library/scan` | 立即扫描（入队 scan job；返回 job_id） | ⬜ |
-| GET | `/api/library/manifest` | 清单（可按 source / 容器 / 有无文档过滤） | ⬜ |
-| GET | `/api/library/pool` | **池子**：无文档的库条目 | ⬜ |
+| POST | `/api/library/scan` | 立即扫描（入队 scan job；返回 job_id） | ✅ M1 |
+| GET | `/api/library/manifest` | 清单（可按 source / 容器 / 有无文档过滤） | ✅ M1 |
+| GET | `/api/library/pool` | **池子**：无文档的库条目 | ✅ M1 |
 | POST | `/api/library/links` | 建档 / 挂链（**原子**：节点 + 链同事务） | ⬜ |
 | DELETE | `/api/library/links/{id}` | 解链（保留文档） | ⬜ |
 | POST | `/api/library/links/{id}/relink` | 重挂（旧链 `replaced`） | ⬜ |
@@ -86,6 +86,8 @@
 | POST | `/api/library/ignores` | 忽略（单条 / 整组） | ⬜ |
 | POST | `/api/library/links/{id}/sync` | 手动重推反哺 | ⬜ |
 | GET | `/api/library/suggestions` | 该条目的库建议（含 reject 理由） | ⬜ |
+| GET | `/api/library/status` | 池子页顶部：哪些源配好了（**只有布尔，没有值**）+ 队列深度 | ✅ M1 |
+| GET | `/api/library/scan-runs` | 最近扫描记账（每源一行：ok / 新增/变更/消失计数） | ✅ M1 |
 
 ### 1.5 工单 / 会话 / 运行
 

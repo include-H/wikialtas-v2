@@ -11,6 +11,7 @@ import {
 import { api } from './api'
 import AiPanel from './panels/AiPanel'
 import DocPanel from './panels/DocPanel'
+import PoolPanel from './panels/PoolPanel'
 import TreePanel from './panels/TreePanel'
 import { useUi } from './store'
 
@@ -24,6 +25,7 @@ export default function App() {
   const { token } = theme.useToken()
   const screens = Grid.useBreakpoint()
   const selectedId = useUi((s) => s.selectedId)
+  const view = useUi((s) => s.view)
   const crumbs = useCrumbs()
   const updatedLabel = useUpdatedLabel()
 
@@ -122,7 +124,7 @@ export default function App() {
 
         <div className="work-area">
           <main className="pane pane-doc">
-            <DocPanel nodeId={selectedId} />
+            {view === 'pool' ? <PoolPanel /> : <DocPanel nodeId={selectedId} />}
           </main>
           {!narrow && ai !== HIDDEN && (
             <aside className="pane pane-ai">
@@ -163,8 +165,10 @@ export default function App() {
 /** 顶栏面包屑：从扁平树往上走。用的是同一份 tree 缓存，不额外发请求。 */
 function useCrumbs(): string[] {
   const selectedId = useUi((s) => s.selectedId)
+  const view = useUi((s) => s.view)
   const tree = useQuery({ queryKey: ['tree'], queryFn: api.tree })
   return useMemo(() => {
+    if (view === 'pool') return ['媒体库池子']
     const byId = new Map((tree.data ?? []).map((n) => [n.id, n]))
     const out: string[] = []
     let cur = selectedId ? byId.get(selectedId) : undefined
@@ -173,17 +177,18 @@ function useCrumbs(): string[] {
       cur = cur.parent_id ? byId.get(cur.parent_id) : undefined
     }
     return out
-  }, [tree.data, selectedId])
+  }, [tree.data, selectedId, view])
 }
 
 /** 「最近修改：x 分钟前」（v1 顶栏右边那行小字）。 */
 function useUpdatedLabel(): string {
   const selectedId = useUi((s) => s.selectedId)
+  const view = useUi((s) => s.view)
   const tree = useQuery({ queryKey: ['tree'], queryFn: api.tree })
   return useMemo(() => {
     const n = (tree.data ?? []).find((x) => x.id === selectedId)
-    return n ? relativeTime(n.updated_at) : ''
-  }, [tree.data, selectedId])
+    return view === 'doc' && n ? relativeTime(n.updated_at) : ''
+  }, [tree.data, selectedId, view])
 }
 
 function relativeTime(iso: string): string {

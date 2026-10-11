@@ -3,6 +3,10 @@ import { create } from 'zustand'
 // 客户端状态只放「不是服务端数据」的东西（`docs/frontend.md` §1）：
 // 面板开合、当前选中。正文、树、版本一律归 TanStack Query 管。
 interface UiState {
+  /** 主区看什么：文档编辑（v1 主页）还是媒体库池子。v1 的全局导航两项。 */
+  view: 'doc' | 'pool'
+  setView: (view: 'doc' | 'pool') => void
+
   selectedId: string | null
   select: (id: string | null) => void
 
@@ -24,6 +28,9 @@ interface UiState {
 }
 
 export const useUi = create<UiState>((set) => ({
+  view: 'doc',
+  setView: (view) => set({ view }),
+
   selectedId: null,
   select: (id) => set({ selectedId: id }),
 

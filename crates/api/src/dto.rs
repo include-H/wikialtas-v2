@@ -53,6 +53,35 @@ pub struct CommitResp {
     pub updated_at: DateTime<Utc>,
 }
 
+/// 手动扫描的入参（缺省 = 扫全部已配置的源）。
+#[derive(Debug, Default, Deserialize)]
+pub struct ScanReq {
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+/// 清单 / 池子的查询参数。
+#[derive(Debug, Deserialize)]
+pub struct LibraryQuery {
+    pub source: Option<String>,
+    pub container: Option<String>,
+    pub has_doc: Option<bool>,
+    #[serde(default)]
+    pub include_missing: bool,
+}
+
+impl LibraryQuery {
+    pub fn into_filter(self) -> Result<wikiatlas_store::library::ManifestFilter, domain::Error> {
+        Ok(wikiatlas_store::library::ManifestFilter {
+            source: self.source.as_deref().map(domain::library::Source::parse).transpose()?,
+            container_key: self.container,
+            has_doc: self.has_doc,
+            include_missing: self.include_missing,
+            limit: 0,
+        })
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct VersionResp {
     pub ver: i32,

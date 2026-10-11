@@ -147,7 +147,9 @@ crates/
 | `domain` | ✅ | 纯类型（NodeKind/Medium/NodeStatus/WriteSource…）+ 纯规则（标题归一化 · 排序键 · 介质规则）+ **13 条单测** |
 | `store` | ✅ | sqlx 仓储：`nodes`（树/建/排序键分配）· `content`（定稿事务/草稿/快照/版本表）· **6 条 `#[sqlx::test]` 集成测** |
 | `api` | ✅ | axum 6 个路由 + 错误映射（404/409/400/500）+ CORS |
-| `sources` / `agent` / `worker` | ⬜ | 尖刺 B 才动（媒体库 / run 执行器 / 队列） |
+| `sources` | ✅ M1 | 三个媒体库客户端（GA cookie / Emby token / Komga api-key）+ 清单构建 + 扫描比对（零 LLM） |
+| `worker` | 🟡 M1 | `jobs` 消费（`FOR UPDATE SKIP LOCKED` + 租约）；`scan` 已通；`run` / `sync` / `audit` 收到就明确失败（M3/M7/M6 落地） |
+| `agent` | ⬜ | 尖刺 B（M3） |
 
 **接口**（人都走这几个；`by` 暂时固定 `human:local`，登录体系落地后由中间件给）
 
@@ -159,6 +161,13 @@ GET  /api/nodes/{id}                 → 节点 + 定稿 + 草稿
 PUT  /api/nodes/{id}/draft           → 存草稿（覆盖写，带 lease）
 POST /api/nodes/{id}/commit          → 定稿（乐观并发，不符 → 409 + currentVer）
 GET  /api/nodes/{id}/versions        → 快照列表
+
+# 媒体库（M1）
+GET  /api/library/pool               → 池子：清单条目 + 有无文档（?source=&container=&has_doc=&include_missing=）
+GET  /api/library/manifest           → 清单（同一组过滤）
+POST /api/library/scan               → **只入队** scan job（跑在 worker），返回 {jobId}
+GET  /api/library/scan-runs          → 最近扫描记账
+GET  /api/library/status             → 哪些源配好了（布尔）+ 队列深度
 ```
 
 **怎么跑**
@@ -167,8 +176,11 @@ GET  /api/nodes/{id}/versions        → 快照列表
 set -a; . .secrets/wikiatlas.pg.env; set +a      # 提供 WIKIATLAS_DB_URL
 export DATABASE_URL="$WIKIATLAS_DB_URL"          # sqlx::test 要用它建临时库
 cargo run -p wikiatlas-api                       # 起在 127.0.0.1:8088，启动时自动跑迁移
-cargo test --workspace                           # 19 条（13 单测 + 6 集成）
+cargo run -p wikiatlas-worker                    # **扫描/反哺/体检都在这**（api 只入队）
+cargo test --workspace                           # domain 19 · sources 2 · store 9
 cd frontend && npm run dev                       # 起在 5173，/api 代理到 8088
+
+# 源密钥（设置页落地前）：secrets 表（真相）或 WIKIATLAS_* 环境变量兜底，见 D53
 ```
 
 **踩到的两个坑（都是环境性的，记下来免得复现）**
@@ -179,10 +191,20 @@ cd frontend && npm run dev                       # 起在 5173，/api 代理到 
 **验收（真跑，不是"编译过了"）**
 
 ```bash
-cargo test --workspace          # 22 条：15 单测（domain）+ 7 集成（store，真库真迁移）
-bash scripts/e2e-ui.sh          # 19 项：真浏览器走「建节点 → 打字 → 自动存草稿 → 定稿 → 刷新」
+cargo test --workspace          # domain 19 · sources 2 · store 9（真库真迁移）
+bash scripts/e2e-ui.sh          # 31 项：真浏览器走「建节点 → 打字 → 自动存草稿 → 定稿 → 刷新 → 题记」
+bash scripts/e2e-library.sh     # 15 项（M1）：真库扫三源 → 清单 → 池子「有/无文档」+ 池子页渲染/过滤
+bash scripts/layout-check.sh    # 32 项：三档视口 + 触底 + 窄屏抽屉（量像素）
 ```
 
 `scripts/e2e-ui.sh` 每一步都回服务端核对（草稿行、定稿版本、快照、写入事实、界面状态条），并**在应用脚本前挂错误钩子**抓白屏时的 JS 错误——第一次跑就抓出了"编辑器把空段落写成 `<br />`"的真 bug。
 
-**下一步（尖刺 B）**：流式正文投影（`docs/backend.md` §5）+ 真 run + SSE。在那之前还得补：`sources`（三个媒体库客户端）与 `worker`（jobs + 租约）。
+**已落地（M1：媒体库进料）**
+
+- `crates/sources`：GA（`/api/auth/login` → Cookie → `/api/games/all`）· Emby（`X-Emby-Token`，Views/Items 翻页）· Komga（`X-API-Key`，series + books，含**确定性**的卷/抽屉判型）。
+- `store::library`：清单 upsert（新增/变更/未变/消失四态，**一个事务**）+ 池子（LEFT JOIN 链）+ `scan_runs`；`content_hash` 做增量缓存。
+- `store::{jobs,secrets}`：队列（`FOR UPDATE SKIP LOCKED` + 租约）与密钥/配置读写（**值不进 DTO**）。
+- 迁移 `0002_library_manifest`：把契约字段（副标题/别名/封面/URL/容器/format/extra/hash/first_seen）落成真列。
+- 前端：左栏「媒体库池子」视图（源/有无文档/关键词过滤 + 「扫描媒体库」入队轮询）。
+
+**下一步（M2 建档与关联）**：池子点一条 → **原子**建【节点 + `library_links` 链】（落位规则：系列容器当父节点、Emby 库进顶级、同名才加介质后缀）；解链保留文档；`library_ignores` 三态忽略。
