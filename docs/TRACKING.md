@@ -2,7 +2,7 @@
 
 > **这个文件是唯一的"续工入口"。** 新对话开始时**只加载它**，agent 就能按 §1 的恢复协议接手，不需要产品方再指方向。
 > **它是一份"活文档"**：每完成一件事，就更新 §2 快照、§3 看板、§6 进度日志。改了要改的，别另起炉灶。
-> **最后更新**：2026-10-11 · 状态：**文档已冻结（实现方代拍板），代码 M0 ✅ / M1 ✅ / M2 ✅，下一步 M3**
+> **最后更新**：2026-10-11 · 状态：**文档已冻结（实现方代拍板），代码 M0 ✅ / M1 ✅ / M2 ✅ · M3 🟡（内核起步）**
 
 ---
 
@@ -43,7 +43,7 @@
 | 代码基线 | ✅ M0（`crates/{domain,store,api}` + `frontend/` 骨架 + 尖刺 A）· ✅ M1（`crates/{sources,worker}` + 池子 API/UI + 0002 迁移） |
 | 产出基准 | **规则** = `/root/WikiAltas/skills`（14 技能 + `samples/` 18 篇）；**质量目标** = `/root/Game_Wiki` 真产出（D3） |
 | 当前里程碑 | **M3 Agent 内核（尖刺 B）** |
-| 下一步（唯一） | M3：run 执行器 + Responses 形状事件流 + SSE 投影 + 一个写工具落草稿（`docs/backend.md` §5 §6 · **先读 `behavior-notes.md`** · 尖刺 B） |
+| 下一步（唯一） | M3 续：`agent::client`（Responses API 客户端）+ `agent::runtime`（工具循环 + 写工具落草稿）+ worker 认领 `run` + API SSE + 前端流式（`docs/backend.md` §5 §6 · 尖刺 B） |
 | 阻塞项 | 无 |
 | 需要产品方做的事 | **无**（已委托；一切按文档与本文裁决） |
 | 仓库状态 | ✅ 已**重新起仓**（旧 `.git` 备份在 `/tmp/wikialtas-git-backup-*.tar.gz`）；`origin`=Gitea（**新历史尚未推送**，首推需 `-f`）。M1 后**工作树待提交** |
@@ -59,7 +59,7 @@
 | **M0 基线** | ✅ | `backend.md §11` | `cargo test --workspace` + `scripts/e2e-ui.sh` 全过 |
 | **M1 媒体库进料** | ✅ | `library-sync.md §1–3` | **真跑过**：真库（192.168.1.4）扫三源 → 252(GA)+1523(Emby)+113(Komga) 条落 `library_manifest` → 池子列出「有/无文档」。见 `scripts/e2e-library.sh`（15/15） |
 | **M2 建档与关联** | ✅ | `library-sync.md §2 §4` | **真跑过**：池子点「建档」→ 树出系列节点 + work 文档 + 链 active；与父同名 → 加介质后缀（`SPY×FAMILY間諜家家酒（漫画）`）；解链只删链、文档还在。见 `scripts/e2e-link.sh`（17/17） |
-| **M3 Agent 内核**（尖刺 B） | ⬜ | `backend.md §5 §6` · `behavior-notes.md` | 真跑一次 run：流式正文投影 + 一个写工具 → SSE 到浏览器 → 草稿落库 |
+| **M3 Agent 内核**（尖刺 B） | 🟡 | `backend.md §5 §6` · `behavior-notes.md` | 收官标准：真跑一次 run → 流式正文投影 + 一个写工具 → SSE 到浏览器 → 草稿落库。**已落**：`agent::stream`（增量 JSON 状态机，9 测）+ `agent::guard`（空写/截断/归档/重复调用，7 测）。**未落**：客户端 / 执行器 / SSE / 前端 |
 | **M4 写作与质量门** | ⬜ | `ai.md §4` · `prompts.md §2.3 §3` · `tools.md §2` · **D3** | 空库跑一篇 → **达到 `/root/Game_Wiki` 质量档**（同骨架/密度/证据落点）→ 过质量门 → 定稿 → 快照 |
 | **M5 关系与综合** | ⬜ | `features.md §6.5` · `tools.md §2` | 综合页挂关系 → 关联展示 → 索引页由宿主更新 |
 | **M6 Review 与体检** | ⬜ | `ai.md §9` · `features.md §6` | 制造孤立节点/失效链/定稿未反哺 → 体检列出 → Review 可裁决 |
@@ -122,6 +122,7 @@
 
 | 日期 | 里程碑 | 做了什么 | 证据 |
 |---|---|---|---|
+| 2026-10-11 | **M3**（起步） | 动 AI 前通读 `behavior-notes.md`（§5 流式投影 / §3 护栏 / §7 模型行为）。落两块**纯逻辑 + 重点单测**的地基：`agent::stream`（从不完整 `function_call_arguments` JSON 里增量抽正文：转义断半不吐字、代理对等高代理、只认键位置、200ms 节流）· `agent::guard`（空写拒绝 / 截断守卫 `>200→<50` / 归档拒写 / JSON 错不猜 / 重复调用 >3 拦、`todo_write` 豁免） | `cargo test -p wikiatlas-agent` **16/16**（stream 9 · guard 7） |
 | 2026-10-11 | **M2** | `domain::place`（落位规则：介质推定 / 撞名后缀 / 复用判据，从 v1 `library_place.go` 搬）· `store::library::{build_doc,unlink,add_ignore,remove_ignore,list_ignores}`（建档三件事一个事务）· `nodes::{create_in_tx,get_in_tx}`（把建节点抽出来共用）· API `POST /api/library/links` + `DELETE /api/library/links/{id}` + `/api/library/ignores` CRUD · 池子行加「建档 / 忽略（单条·整组）/ 解链」 | `scripts/e2e-link.sh` **17/17**（建档那步走真界面点）；`cargo test --workspace`：domain 27 · store 17 |
 | 2026-10-11 | **M1** | `crates/sources`（GA/Emby/Komga 三源客户端 + 清单构建 + 扫描比对 + `scan_runs`）、`crates/worker`（jobs 队列 + `FOR UPDATE SKIP LOCKED` + 租约）、`store::library`（清单 upsert / 池子 / 扫描记账）、`store::{jobs,secrets}`、迁移 `0002_library_manifest`、API `GET /api/library/{pool,manifest,status,scan-runs}` + `POST /api/library/scan`、前端「媒体库池子」视图 | `scripts/e2e-library.sh` **15/15**；`cargo test --workspace` 全绿（domain 19 · sources 2 · store 9）；真库扫描 252+1523+113 条 |
 | 2026-10-11 | 修复 | 修了三个**挡路的旧伤**（都不是 M1 引入，但让 M0 验收回不来）：① 皮肤上下文未 inject → 编辑器根本挂不上（`ctx.set` → `ctx.inject`）② `tick` 在 ProseMirror 事务里同步通知 React → React 19 无限重渲染（改 rAF 合并）③ 题记围栏尾随空行导致 `:::` 漏成正文、署名认不出 | `scripts/e2e-ui.sh` **31/31** · `scripts/layout-check.sh` **32/32** |

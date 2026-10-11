@@ -2133,6 +2133,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "wikiatlas-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wikiatlas-domain",
+ "wikiatlas-store",
+]
+
+[[package]]
 name = "wikiatlas-api"
 version = "0.1.0"
 dependencies = [
