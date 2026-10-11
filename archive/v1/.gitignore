@@ -1,0 +1,33 @@
+# Secrets / local
+.env.local
+.env
+*.env.local
+backend/data/
+frontend/node_modules/
+frontend/dist/
+**/wikiatlas.db
+**/wikiatlas.db-wal
+**/wikiatlas.db-shm
+
+# 本地核对截图 / 私密目录，不入库
+.shots/
+.secrets/
+
+# 构建缓存
+frontend/node_modules/.vite/
+*.tsbuildinfo
+__pycache__/
+
+# 后端嵌入用的前端产物（构建时从 frontend/dist 拷入，不入库）
+backend/web/dist/*
+!backend/web/dist/.gitkeep
+
+# 本地参考：用户 checkout 的 deepseek-harness（295MB，只是拿来对照 harness 设计）
+/deepseek-harness/
+# 本地参考：OpenAI Codex 官方仓库（717MB，对照 CLI/TUI 的流式与任务展示）
+/codex/
+# 随手丢在仓库根目录的参考截图 / 临时图片
+/*.png
+
+# 本地工具链 home(含凭据),永不入库
+.tooling/

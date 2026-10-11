@@ -1,0 +1,64 @@
+/*
+ * Milkdown 的外观。刻意不引它的主题包（nord 之类自带一套配色，
+ * 会绕开 AntD token——`docs/frontend.md` §6 的纪律）。
+ * 只写编辑器自己的样式；骨架与面板布局在 `index.css`。
+ */
+
+.milkdown {
+  height: 100%;
+  /* 宽屏别把正文拉成一行两百字；窄屏由 max-width 自然退化为整宽 */
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.doc-body .ProseMirror {
+  outline: none;
+  /* 撑满可视区，点空白也能聚焦（不是固定 60vh——那是没触底的年代留下的） */
+  min-height: 100%;
+  line-height: 1.75;
+  color: var(--ant-color-text);
+}
+
+.doc-body .ProseMirror h1,
+.doc-body .ProseMirror h2,
+.doc-body .ProseMirror h3 {
+  line-height: 1.35;
+  margin: 1.2em 0 0.5em;
+}
+
+.doc-body .ProseMirror h1 {
+  font-size: 1.6em;
+}
+
+.doc-body .ProseMirror h2 {
+  font-size: 1.3em;
+}
+
+.doc-body .ProseMirror p {
+  margin: 0.6em 0;
+}
+
+.doc-body .ProseMirror blockquote {
+  margin: 0.8em 0;
+  padding: 0.2em 0 0.2em 12px;
+  border-left: 3px solid var(--ant-color-primary-border);
+  color: var(--ant-color-text-secondary);
+}
+
+.doc-body .ProseMirror code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--ant-color-fill-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.doc-body .ProseMirror table {
+  border-collapse: collapse;
+}
+
+.doc-body .ProseMirror th,
+.doc-body .ProseMirror td {
+  padding: 4px 10px;
+  border: 1px solid var(--ant-color-border);
+}

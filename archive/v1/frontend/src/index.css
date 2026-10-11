@@ -1,0 +1,3730 @@
+/* WikiAltas v2 — Feishu-like shell. Semi tokens only; no custom hex. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
+  background: var(--semi-color-bg-0);
+  color: var(--semi-color-text-0);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * AI 紫：飞书主题包（@semi-bot/semi-theme-feishu）只带 --semi-purple-*，
+ * 没有 Semi 的 --semi-color-ai-* 语义 token。这些 token 一旦为空，
+ * `background: var(--semi-color-ai-purple)` 会算成 transparent，
+ * 紫底白字的 AI 按钮/图标会整块"隐形"（实测 getComputedStyle 为 rgba(0,0,0,0)）。
+ * 这里按主题自带的紫色阶补一次；深色模式会跟着 --semi-purple-* 自动换。
+ * 必须挂在 body 上而不是 :root：主题包把调色板定义在 body[theme-mode]，
+ * 写在 :root 的 var(--semi-purple-5) 在 html 作用域解析不到，会变成无效值。
+ * 只允许 AI 元素用这几个变量（VISUAL_SPEC §2：紫是 AI 的唯一强调色）。
+ */
+body {
+  --semi-color-ai-purple: rgba(var(--semi-purple-5));
+  --semi-color-ai-purple-hover: rgba(var(--semi-purple-6));
+  --semi-color-ai-purple-active: rgba(var(--semi-purple-7));
+  --semi-color-ai-purple-disabled: rgba(var(--semi-purple-2));
+}
+
+/* ===== Shell layout (Semi Layout + class hooks; no .semi-* reverse overrides) ===== */
+.app-shell {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--semi-color-bg-0);
+}
+
+/* Layout.Content: main work area */
+.shell-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ===== Panes ===== */
+.pane-header {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+  border-bottom: 1px solid var(--semi-color-border);
+  flex-shrink: 0;
+}
+
+.tree-more {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  padding: 0 4px;
+  min-width: 0;
+  height: auto;
+  line-height: 1.2;
+}
+
+.tree-more:hover {
+  color: var(--semi-color-text-0);
+}
+
+/* Outline */
+.outline-pane {
+  width: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--semi-color-border);
+  min-height: 0;
+}
+
+.outline-list {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.outline-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  /* 列状 flex 容器里的子项默认可收缩：目录长了会把每条压扁，
+     这里钉死高度让 .outline-list 去滚动（对齐短目录的间距）。 */
+  flex-shrink: 0;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  height: auto;
+  /* 12px × 1.5 行高 + 上下各 5px = 28px 一行：目录再长也不压缩，只滚动 */
+  padding: 5px 10px;
+  border-radius: var(--semi-border-radius-medium);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.outline-item.level-3 {
+  color: var(--semi-color-text-2);
+}
+
+/* 树形大纲的展开箭头：有子级的行才显示；展开时转 90°。叶子留空位对齐。 */
+.outline-caret {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 2px;
+  color: var(--semi-color-text-2);
+  transition: transform 0.12s ease;
+  cursor: pointer;
+}
+.outline-caret.is-open {
+  transform: rotate(90deg);
+}
+.outline-caret.is-leaf {
+  visibility: hidden;
+}
+
+.outline-item:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.outline-item.active {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+  /* 不加粗：加粗在滚动时逐行切换，视觉上像"某一格在放大/收缩"（用户原话）。 */
+}
+
+.outline-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+/* ===== Work view ===== */
+.work-view {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+
+
+.work-content {
+  /* wiki 条目按规范必须带「参考资料」外链，长 URL 是不可断 token——不换行就会把
+     整列顶宽、正文被切。和 AI 面板同一条规则（实测：注入长 URL 后 scrollWidth 翻倍）。 */
+  overflow-wrap: anywhere;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.work-foot {
+  flex-shrink: 0;
+  padding: 6px 16px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+
+
+/* ===== Editor ===== */
+.md-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+}
+
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-pane {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.preview-pane {
+  padding: 20px 32px 48px;
+  background: var(--semi-color-bg-0);
+}
+
+.preview-empty {
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+  padding: 48px 16px;
+  text-align: center;
+}
+
+/* Markdown preview：与编辑器同一套比例（正文 16/1.65，标题 24/20/18） */
+.md-preview {
+  max-width: 760px;
+  margin: 0 auto;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--semi-color-text-0);
+}
+
+.md-preview h1,
+.md-preview h2,
+.md-preview h3,
+.md-preview h4,
+.md-preview h5,
+.md-preview h6 {
+  font-weight: 600;
+  line-height: 1.4;
+  scroll-margin-top: 16px;
+}
+
+.md-preview h1 {
+  font-size: 26px;
+  line-height: 1.35;
+  margin: 28px 0 8px;
+}
+
+.md-preview h2 {
+  font-size: 22px;
+  line-height: 1.4;
+  margin: 24px 0 6px;
+}
+
+.md-preview h3 {
+  font-size: 19px;
+  line-height: 1.45;
+  margin: 20px 0 4px;
+}
+
+.md-preview h4 {
+  font-size: 17px;
+}
+
+.md-preview h5 {
+  font-size: 16px;
+}
+
+.md-preview h6 {
+  font-size: 15px;
+  color: var(--semi-color-text-1);
+}
+
+.md-preview p {
+  margin: 10px 0;
+}
+
+.md-preview ul,
+.md-preview ol {
+  padding-left: 1.4em;
+  margin: 10px 0;
+}
+
+.md-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--semi-color-fill-0);
+  padding: 1px 5px;
+  border-radius: var(--semi-border-radius-small);
+}
+
+.md-preview pre {
+  background: var(--semi-color-fill-0);
+  padding: 12px 14px;
+  border-radius: var(--semi-border-radius-large);
+  overflow: auto;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.md-preview pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.md-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.md-preview th,
+.md-preview td {
+  border: 1px solid var(--semi-color-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.md-preview th {
+  background: var(--semi-color-fill-0);
+  font-weight: 600;
+}
+
+.md-preview a {
+  color: var(--semi-color-primary);
+}
+
+.md-preview img {
+  max-width: 100%;
+}
+
+/* 对话列表的滚动条：Semi 自己带了 `-scroll-hidden` 修饰类（我们确实拿到了），
+   但它只写了 `::-webkit-scrollbar{display:none}`——**Firefox 不认这个伪元素**，
+   而 `.semi-ai-chat-dialogue-list` 又是 `overflow-y: scroll`（恒画一条），
+   于是非 WebKit 浏览器上那条滚动条一直杵着。这里用标准属性把 Semi 自己的
+   意图补完；滚动本身不受影响（滚轮/触控板照常）。
+   注：这是全仓唯一一条写在 .semi-* 上的规则，理由见上——Semi 没给等价 prop。 */
+.semi-ai-chat-dialogue-list {
+  scrollbar-width: none;
+}
+
+/* ===== AI Panel ===== */
+
+/* 对话内容这条 flex 链，每一层都是默认的 `min-width: auto`
+   （= 自动最小尺寸取内容 min-content）。于是只要**任何一条消息**里有不肯缩的东西
+   （带 nowrap 的工具卡摘要、长 token、代码块…），整条链就被顶宽，
+   对话列表随即出横向滚动条——哪怕别的消息都很短。
+   实测过一次：单条消息把 465px 的列表顶到 874px。
+   让每一层都允许收缩，内容各自的溢出由各自处理（工具卡/代码块/长 token 都已收口）。
+   Semi 没给对应 prop，这是从外部补的一处；作用域收在 .ai-panel 里，不外溢。 */
+.ai-panel .semi-ai-chat-dialogue-container,
+.ai-panel .semi-ai-chat-dialogue-inner,
+.ai-panel .semi-ai-chat-dialogue-content,
+.ai-panel .semi-ai-chat-dialogue-content-wrapper,
+.ai-panel .semi-ai-chat-dialogue-content-inner {
+  min-width: 0;
+}
+
+/* 对话头像：不给内容时 Semi 画的是空灰圆，每屏都看得见。
+   AI 用紫（VISUAL_SPEC §2：紫只准出现在 AI 元素上），用户用主题主色。 */
+.ai-avatar-altas {
+  background: var(--semi-color-ai-purple);
+  color: var(--semi-color-white);
+}
+
+.ai-avatar-user {
+  background: var(--semi-color-primary);
+  color: var(--semi-color-white);
+  font-size: 12px;
+}
+
+.ai-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  /*
+   * 面板的两层底：画布（对话区）+ 浮面（面板头/工具卡片）。
+   * 飞书主题把 bg-0~bg-3 全映射成同一档（浅色是白、深色是最暗），
+   * 光靠 bg-* 分不出层次，所以在这里定一对语义变量：
+   * 浅色 = 浅灰画布 + 白卡片；深色 = 最暗画布 + 亮一档的卡片。
+   * 两边都保证"浮面比画布亮"，卡片才有浮起来的感觉。
+   */
+  --ai-canvas: var(--semi-color-tertiary-light-default);
+  --ai-surface: var(--semi-color-bg-0);
+  background: var(--ai-canvas);
+}
+
+body[theme-mode='dark'] .ai-panel {
+  --ai-canvas: var(--semi-color-bg-0);
+  --ai-surface: var(--semi-color-bg-1);
+}
+
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--ai-surface);
+  border-bottom: 1px solid var(--semi-color-border);
+  flex-shrink: 0;
+}
+
+.ai-panel-body {
+  flex: 1;
+  min-height: 0;
+  /* 窄侧栏里横向滚动条很丑：只允许纵向滚动，长内容交给芯片自己的省略 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px;
+  background: var(--ai-canvas);
+}
+
+.ai-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 0 12px;
+}
+
+.ai-empty-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--semi-color-bg-0);
+  color: var(--semi-color-ai-purple);
+  border: 1px solid var(--semi-color-border);
+  box-shadow: var(--semi-shadow-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+.ai-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.ai-panel-input {
+  flex-shrink: 0;
+  background: var(--ai-surface);
+  border-top: 1px solid var(--semi-color-border);
+  padding: 12px 14px 14px;
+}
+
+/* 输入框 footer 的操作区：Semi 的 footer 是 space-between 横排，我们的环若作为
+   独立孩子会掉进"正中间"。把环和发送键包成一个组，footer 只剩两个孩子：
+   配置在左、这组在右——环紧挨发送键。 */
+.ai-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* run 边界行（对话前/对话后的事实）：细、灰、不抢戏——它是状态，不是内容。
+   对齐 dsh 的 turn/start · turn/end：生命周期事实贴着内容的前后两端。 */
+.ai-turn-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 6px;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ai-turn-row .ai-turn-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--semi-color-text-2);
+  transform: translateY(-2px);
+}
+.ai-turn-row.is-warn .ai-turn-dot {
+  background: var(--semi-color-warning);
+}
+.ai-turn-row.is-error .ai-turn-dot {
+  background: var(--semi-color-danger);
+}
+.ai-turn-row.is-error .ai-turn-text {
+  color: var(--semi-color-danger);
+}
+
+/* AI 思考行（renderDialogueContentItem.reasoning → ThinkingRow）：
+   默认收起，进行中折叠头显最后一句、完成后显字数（VISUAL_SPEC §4）。
+   没有内置 Collapsible 的量高/裁剪层，长思考不会"卡住/被截断"；
+   紫是 AI 专属强调色（VISUAL_SPEC §2）。 */
+.ai-thinking {
+  background: var(--semi-color-fill-1);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.ai-thinking-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--semi-color-ai-purple);
+}
+.ai-thinking-icon {
+  font-size: 14px;
+}
+.ai-thinking.is-thinking .ai-thinking-icon {
+  animation: ai-thinking-pulse 1.1s ease-in-out infinite;
+}
+.ai-thinking-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.ai-thinking-hint {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--semi-color-text-3);
+}
+.ai-thinking-chevron {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+.ai-thinking.is-open .ai-thinking-hint { display: none; }
+.ai-thinking-body {
+  margin-top: 8px;
+}
+.ai-thinking-md {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--semi-color-text-2);
+}
+@keyframes ai-thinking-pulse {
+  50% { opacity: 0.3; transform: scale(0.92); }
+}
+
+/* 叙事正文：Semi 内容区写死 14px，字号只能从 MarkdownRender 根节点（我们自己的类名）改 */
+.ai-md {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--semi-color-text-0);
+  /* 长不可断 token（URL、长英文词）必须换行而不是往右顶：列一被顶宽，
+     整个对话容器就出横向滚动条，正文全被切（实测：一条 Wikipedia 链接
+     就把助手列推宽）。`anywhere` 而不是 `break-word`——只有它参与
+     min-content 计算，flex 子项才会真的缩回去。 */
+  overflow-wrap: anywhere;
+}
+
+/* 代码块自己滚，别把消息顶宽。
+   `<pre>` 走浏览器默认的 `white-space: pre`：长行不换行，它的 min-content 就是
+   那一整行——flex 链（content → inner → container → wrapper）的自动最小尺寸被
+   一路撑开，最后 wrapper 比 .semi-ai-chat-dialogue-list 还宽，列表于是出横向
+   滚动条（真实观测：DevTools 里 list 固定、wrapper 往右溢出）。
+   `overflow-x: auto` 同时也是解药：overflow 非 visible 时，flex 子项的自动最小
+   尺寸按 0 算，链就收得住。 */
+.ai-md pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* 内联代码里的长 token 换行（pre 内部由 white-space:pre 兜着，不受这条影响） */
+.ai-md code {
+  overflow-wrap: anywhere;
+}
+
+.ai-md p {
+  margin: 0 0 8px;
+}
+
+.ai-md p:last-child,
+.ai-md > :last-child {
+  margin-bottom: 0;
+}
+
+.ai-md ul,
+.ai-md ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.ai-md li {
+  margin: 2px 0;
+}
+
+.ai-md li > p {
+  margin: 0;
+}
+
+/* Run timeline */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@keyframes tool-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.ai-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-panel-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--semi-color-ai-purple);
+  color: var(--semi-color-white);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.ai-resume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+/* 工作中指示（地板层）：run 在跑时常亮——reasoning 被归约器吞（F2）、工具长耗时
+   阶段对话没可见输出，没它界面就像死了。脉动点用 AI 专属紫（token，非 hex）。 */
+.ai-working-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 2px 4px;
+}
+.ai-working-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--semi-color-ai-purple);
+  animation: ai-working-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ai-working-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-working-dot {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+/* 工单终态行（时间线的尾）：✓ 已完成 · 4m 12s。终态取自流里的 wikiatlas.run.end
+   ——所以它和"正在工作"是同一处的两个形态（RunStatusRow.tsx）。 */
+.ai-run-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 2px 4px;
+}
+.ai-run-status-icon {
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--semi-color-text-3);
+}
+.ai-run-status.is-completed .ai-run-status-icon {
+  color: var(--semi-color-success);
+}
+.ai-run-status.is-failed .ai-run-status-icon {
+  color: var(--semi-color-danger);
+}
+.ai-run-status.is-interrupted .ai-run-status-icon {
+  color: var(--semi-color-warning);
+}
+
+/* 面板里的「已选定 N 字」作用域提示（对齐飞书「选定内容」） */
+.ai-selection-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-medium);
+  background: var(--semi-color-fill-0);
+}
+
+.ai-sources {
+  margin: 6px 0 2px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--semi-color-text-1);
+  overflow-wrap: anywhere;
+}
+
+.ai-sources li::marker {
+  color: var(--semi-color-text-3);
+}
+
+.ai-sources a {
+  color: var(--semi-color-text-1);
+  text-decoration: none;
+}
+
+.ai-sources a:hover {
+  color: var(--semi-color-primary);
+  text-decoration: underline;
+}
+
+/* 折叠条里的工具产物卡片（Semi 官方代码卡片外面只包一层限高，不碰 .semi-* 内部） */
+.ai-artifact {
+  margin-top: 6px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.ai-artifact-note {
+  margin-top: 4px;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+/* 头部动作区（新对话 / 会话列表 / 收起） */
+.ai-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* 会话列表（本页面的会话：召回 / 改名 / 删除） */
+.ai-session-list {
+  width: 300px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.ai-session-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+}
+
+.ai-session-empty {
+  padding: 14px 10px;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.ai-session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--semi-border-radius-medium);
+  cursor: pointer;
+}
+
+.ai-session-item:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.ai-session-item.is-active {
+  background: var(--semi-color-primary-light-default);
+}
+
+.ai-session-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--semi-color-text-3);
+}
+
+.ai-session-dot.is-running {
+  background: var(--semi-color-primary);
+}
+.ai-session-dot.is-completed {
+  background: var(--semi-color-success);
+}
+.ai-session-dot.is-failed {
+  background: var(--semi-color-danger);
+}
+.ai-session-dot.is-interrupted {
+  background: var(--semi-color-warning);
+}
+.ai-session-dot.is-blank {
+  background: var(--semi-color-border);
+}
+
+.ai-session-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-session-title {
+  font-size: 13px;
+  color: var(--semi-color-text-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-session-item.is-active .ai-session-title {
+  color: var(--semi-color-primary);
+  font-weight: 600;
+}
+
+.ai-session-meta {
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+}
+
+.ai-session-ops {
+  display: none;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ai-session-item:hover .ai-session-ops,
+.ai-session-item.is-active .ai-session-ops {
+  display: inline-flex;
+}
+
+/* 会话很长时的提示行 */
+.ai-thread-more {
+  padding: 0 0 10px;
+  text-align: center;
+}
+
+/* ===== Search modal ===== */
+.search-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: flex-start;
+  text-align: left;
+  height: auto;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-medium);
+  background: var(--semi-color-bg-0);
+  padding: 10px 12px;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.search-hit:hover,
+.search-hit.is-active {
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-0);
+}
+
+.search-hit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-hit-snippet {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-body {
+  margin-top: 12px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.search-foot {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--semi-color-border);
+  text-align: center;
+}
+
+/* ===== Runs ===== */
+.run-list-view {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 28px 48px;
+}
+
+.run-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.run-list-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.run-list-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 输入框上方的任务面板（照 dsh 的 conversation.input.dock）：
+   默认收起、点开向上展开；列表自己滚动，不把输入框顶走。 */
+.todo-dock {
+  margin-bottom: 6px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-medium);
+  background: var(--semi-color-fill-0);
+  overflow: hidden;
+}
+
+.todo-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-head:hover {
+  background: var(--semi-color-fill-1);
+}
+
+.todo-lead {
+  display: inline-flex;
+  color: var(--semi-color-text-2);
+}
+
+.todo-title {
+  font-weight: 600;
+}
+
+.todo-progress {
+  color: var(--semi-color-text-2);
+}
+
+/* 靠右：收起时朝上（暗示"点开往上看"），展开时朝下 */
+.todo-chevron {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--semi-color-text-2);
+}
+
+.todo-list {
+  margin: 0;
+  padding: 2px 10px 8px;
+  list-style: none;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--semi-color-text-1);
+}
+
+.todo-glyph {
+  display: inline-flex;
+  flex: none;
+  padding-top: 2px;
+}
+
+.todo-glyph-done {
+  color: var(--semi-color-success);
+}
+
+.todo-glyph-active {
+  color: var(--semi-color-primary);
+  animation: todo-spin 1.4s linear infinite;
+}
+
+.todo-glyph-pending {
+  color: var(--semi-color-text-3);
+}
+
+.todo-item[data-status='completed'] .todo-content {
+  color: var(--semi-color-text-2);
+}
+
+/* 完成的划掉——一眼看出哪些已经过去 */
+.todo-item[data-status='completed'] .todo-content {
+  text-decoration: line-through;
+}
+
+@keyframes todo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── 工具组折叠条：连续的 function_call 折成的一行（ToolGroupChip.tsx） ──
+   一行 = 族图标 + 人话措辞/族计数 + 摘要 + diff/耗时；点开是逐条工具行与产物。
+   信息全部来自各项本身（结果摘要挂在 item.wikiatlas 下），不是从别处拼的。 */
+.tool-card {
+  margin: 2px 0;
+  /* 工具卡绝不许比容器宽：它下面每一项都可能带着 nowrap 或 flex-shrink:0，
+     只要有一个不肯缩，整条 head 的 min-content 就等于那一行的全长（实测 746px），
+     flex 链会被一路撑开，最后对话列表出横向滚动条。 */
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-card-head:hover {
+  color: var(--semi-color-text-0);
+}
+
+.tool-card-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.tool-card.is-running .tool-card-icon {
+  animation: todo-spin 1.2s linear infinite;
+}
+
+.tool-card.is-failed .tool-card-label {
+  color: var(--semi-color-danger);
+}
+
+.tool-card-label {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-card-detail {
+  min-width: 0;
+  flex: 1;
+}
+
+.tool-card-diff {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-card-diff-add {
+  color: var(--semi-color-success);
+}
+
+.tool-card-diff-del {
+  color: var(--semi-color-danger);
+}
+
+.tool-card-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-card-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.tool-card-body {
+  padding: 2px 0 6px 22px;
+}
+
+/* 失败原因全文（折叠时那一行是 nowrap，只能打省略号；展开看这里） */
+.tool-card-error {
+  margin: 4px 0 2px;
+  padding: 6px 8px;
+  border-radius: var(--semi-border-radius-small);
+  background: var(--semi-color-danger-light-default, var(--semi-color-fill-0));
+  color: var(--semi-color-danger);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 展开后的摘要全文（折起那行是截断的，全文在这里） */
+.tool-card-note {
+  margin: 4px 0 2px;
+  padding: 6px 8px;
+  border-radius: var(--semi-border-radius-small);
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 折叠条展开后，组内每一条工具占一块（ToolGroupChip → ToolDetail） */
+.tool-group-item + .tool-group-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+/* 组内每块的小标题（单条时不画——折叠头已经是它的措辞，不重复） */
+.tool-group-item-head {
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.tool-detail {
+  min-width: 0;
+}
+
+/* ── 提醒条：宿主的播报与护栏提醒（wikiatlas.notice，NoticeDock.tsx） ──
+   和任务面板同一处（输入框顶部的原生槽）：都是"这个工单现在的状态"。 */
+.notice-dock {
+  margin-bottom: 6px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-medium);
+  background: var(--semi-color-fill-0);
+  overflow: hidden;
+}
+
+.notice-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notice-head:hover {
+  background: var(--semi-color-fill-1);
+}
+
+.notice-lead {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--semi-color-text-2);
+}
+
+.notice-lead.is-warn {
+  color: var(--semi-color-warning);
+}
+
+.notice-lead.is-error {
+  color: var(--semi-color-danger);
+}
+
+.notice-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--semi-color-text-2);
+}
+
+.notice-list {
+  margin: 0;
+  padding: 2px 10px 8px;
+  max-height: 160px;
+  overflow: auto;
+  list-style: none;
+}
+
+.notice-item {
+  padding: 2px 0;
+}
+
+/* 工单列表＝对话列表：标题下那行"最近说了什么" */
+.run-cell-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 560px;
+}
+
+/* 对话详情抽屉底部的操作条（重命名 / 继续这段对话） */
+.run-detail-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.run-cell-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  /* 长目标必须自己收住，否则 auto 布局会把状态/操作列挤出屏幕 */
+  max-width: 640px;
+  overflow: hidden;
+}
+
+.run-cell-title {
+  color: var(--semi-color-text-0);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+}
+
+/* 工单详情（SideSheet） */
+.run-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100%;
+}
+
+.run-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ===== Settings ===== */
+.login-view {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  overflow: auto;
+}
+
+.login-card {
+  width: 400px;
+  max-width: 100%;
+}
+
+.login-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.login-brand .brand-mark {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  font-size: 16px;
+  border-radius: var(--semi-border-radius-large);
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+}
+
+.login-hint {
+  display: block;
+  text-align: center;
+  line-height: 1.7;
+}
+
+.login-foot {
+  display: block;
+  margin-top: 12px;
+  text-align: center;
+  line-height: 1.6;
+  opacity: 0.85;
+}
+
+.settings-view {
+  flex: 1;
+  overflow: auto;
+}
+
+/* 限宽的是**内容**不是滚动容器：容器通栏（滚动条落在窗口边），内容居中 900。
+   以前 max-width 加在滚动容器上，宽屏下滚动条悬在屏幕中间、右侧一片死白。 */
+.settings-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.settings-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.settings-alert {
+  margin-top: 12px;
+}
+
+.settings-tabs {
+  margin-top: 4px;
+}
+
+.settings-card {
+  width: 100%;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 10px;
+}
+
+.settings-field-inline {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.settings-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.settings-features {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--semi-color-text-1);
+}
+
+.settings-features-collapse {
+  margin-top: 16px;
+}
+
+/* ===== BlockNote WYSIWYG (default edit body) ===== */
+/* Theme via Semi CSS tokens only — no hex colors. */
+
+.block-editor-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--semi-color-bg-0);
+}
+
+.block-editor-inner {
+  position: relative;
+  max-width: 820px;
+  margin: 0 auto;
+  min-height: 100%;
+  padding: 12px 0 64px;
+}
+
+/* Map BlockNote theme vars to Semi tokens */
+.bn-root[data-color-scheme] {
+  --bn-colors-editor-text: var(--semi-color-text-0);
+  --bn-colors-editor-background: var(--semi-color-bg-0);
+  --bn-colors-menu-text: var(--semi-color-text-0);
+  --bn-colors-menu-background: var(--semi-color-bg-2);
+  --bn-colors-tooltip-text: var(--semi-color-text-0);
+  --bn-colors-tooltip-background: var(--semi-color-fill-0);
+  --bn-colors-hovered-text: var(--semi-color-text-0);
+  --bn-colors-hovered-background: var(--semi-color-fill-0);
+  --bn-colors-selected-text: var(--semi-color-bg-0);
+  --bn-colors-selected-background: var(--semi-color-primary);
+  --bn-colors-disabled-text: var(--semi-color-text-2);
+  --bn-colors-disabled-background: var(--semi-color-fill-0);
+  --bn-colors-shadow: var(--semi-color-border);
+  --bn-colors-border: var(--semi-color-border);
+  --bn-colors-side-menu: var(--semi-color-text-2);
+  --bn-border-radius: var(--semi-border-radius-large);
+  --bn-font-family: inherit;
+}
+
+/* 正文排版：一套比例，编辑器与阅读态共用（改这里就够）
+   正文 16 / 行高 1.65；标题 26 / 22 / 19 / 17 / 16 / 15。
+   字号走 BlockNote 的 --level 变量：它按 data-level 给 3em/2em/1.3em…，
+   且 level=1 时压根不写 data-level 属性，只能用默认值覆盖，
+   所以第一级要写成不带 [data-level] 的那条。 */
+.bn-root .bn-editor {
+  padding: 12px 28px 48px;
+  color: var(--semi-color-text-0);
+  background: transparent;
+  min-height: 280px;
+  font-size: 16px;
+}
+
+/* 行高放在 .bn-block-outer 上：BlockNote 默认给的是 1.5，太挤 */
+.bn-root .bn-editor .bn-block-outer {
+  line-height: 1.65;
+}
+
+/* 块间距 = 上下 padding 之和（默认 3px+3px，段落挨得太近） */
+.bn-root .bn-editor .bn-block-content {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* 标题：字号 + 上下留白。选择器要压过 BlockNote 那条
+   .bn-block-outer:not([data-prev-type])>.bn-block>.bn-block-content[data-content-type=heading]
+   （它同时写 font-size 和 font-weight），所以多带一层 .bn-block-outer。 */
+.bn-root .bn-editor .bn-block-outer .bn-block-content[data-content-type='heading'] {
+  --level: 26px;
+  --prev-level: 26px;
+  font-weight: 600;
+  line-height: 1.35;
+  padding-top: 28px;
+  padding-bottom: 8px;
+  scroll-margin-top: 16px;
+}
+
+/* BlockNote 把标题的 font-weight:700 写在 .bn-block-content 上，同权重压不过，
+   直接在标题元素上再声明一次（子元素继承打不过直接声明）。 */
+.bn-root .bn-editor .bn-block-content[data-content-type='heading'] .bn-inline-content {
+  font-weight: 600;
+}
+
+.bn-root .bn-editor .bn-block-outer .bn-block-content[data-content-type='heading'][data-level='2'] {
+  --level: 22px;
+  --prev-level: 22px;
+  line-height: 1.4;
+  padding-top: 24px;
+  padding-bottom: 6px;
+}
+
+.bn-root .bn-editor .bn-block-outer .bn-block-content[data-content-type='heading'][data-level='3'] {
+  --level: 19px;
+  --prev-level: 19px;
+  line-height: 1.45;
+  padding-top: 20px;
+  padding-bottom: 4px;
+}
+
+.bn-root .bn-editor .bn-block-outer .bn-block-content[data-content-type='heading'][data-level='4'] {
+  --level: 17px;
+  --prev-level: 17px;
+  line-height: 1.55;
+  padding-top: 16px;
+}
+
+.bn-root .bn-editor .bn-block-outer .bn-block-content[data-content-type='heading'][data-level='5'] {
+  --level: 16px;
+  --prev-level: 16px;
+  line-height: 1.6;
+  padding-top: 14px;
+}
+
+.bn-root .bn-editor .bn-block-outer .bn-block-content[data-content-type='heading'][data-level='6'] {
+  --level: 15px;
+  --prev-level: 15px;
+  line-height: 1.6;
+  padding-top: 14px;
+  color: var(--semi-color-text-1);
+}
+
+/* 引用：左边一条竖线 + 淡底（飞书的说明块观感） */
+.bn-root .bn-editor .bn-block-content[data-content-type='quote'] {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.bn-root .bn-editor .bn-block-content[data-content-type='quote'] blockquote {
+  border-left: 3px solid var(--semi-color-primary);
+  border-radius: var(--semi-border-radius-small);
+  padding: 6px 12px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-style: italic;
+}
+
+/* 代码块 */
+.bn-root .bn-editor .bn-block-content[data-content-type='codeBlock'] {
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin: 10px 0;
+}
+
+.bn-root .bn-editor .bn-block-content[data-content-type='codeBlock'] pre {
+  background: var(--semi-color-fill-0);
+  border-radius: var(--semi-border-radius-large);
+  padding: 12px 14px;
+}
+
+/* 表格：比正文小一号，单元格留白收一点 */
+.bn-root .bn-editor .bn-block-content[data-content-type='table'] {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.bn-root .bn-editor .bn-block-content[data-content-type='table'] table {
+  border-collapse: collapse;
+}
+
+.bn-root .bn-editor .bn-block-content[data-content-type='table'] th,
+.bn-root .bn-editor .bn-block-content[data-content-type='table'] td {
+  border: 1px solid var(--semi-color-border);
+  padding: 8px 12px;
+}
+
+.bn-root .bn-editor .bn-block-content[data-content-type='table'] th {
+  background: var(--semi-color-fill-0);
+  font-weight: 600;
+}
+
+.bn-root .bn-editor a {
+  color: var(--semi-color-primary);
+}
+
+/* Side menu / drag handle quiet */
+.bn-root [class*='sideMenu'] button,
+.bn-root .bn-side-menu button {
+  color: var(--semi-color-text-2);
+}
+
+/* ===== v2 shell: Feishu-style side nav + top bar ===== */
+.shell-side {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--semi-color-bg-1);
+  border-right: 1px solid var(--semi-color-border);
+  overflow: hidden;
+  transition: width 0.15s ease;
+}
+
+.shell-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.side-nav {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 10px 10px;
+  gap: 8px;
+}
+
+.side-nav.collapsed {
+  align-items: center;
+  padding: 10px 0 8px;
+  gap: 4px;
+}
+
+/* 折叠态 rail 选中态:令牌与展开态 .side-link.active 一致(浅蓝) */
+.rail-link.is-active {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.side-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--semi-color-text-0);
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--semi-border-radius-medium);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--semi-color-primary);
+  color: var(--semi-color-white);
+}
+
+.side-nav .brand-mark {
+  background: var(--semi-color-primary);
+  color: var(--semi-color-white);
+}
+
+.brand-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-search {
+  justify-content: flex-start;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  border-radius: var(--semi-border-radius-medium);
+  height: 34px;
+  width: 100%;
+}
+
+.side-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.side-link {
+  justify-content: flex-start;
+  height: 34px;
+  border-radius: var(--semi-border-radius-medium);
+  color: var(--semi-color-text-1);
+  font-size: 13px;
+}
+
+.side-link.active {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+  font-weight: 600;
+}
+
+/* 侧栏导航项的数量角标（如「待写正文 9」） */
+.side-count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 18px;
+  background: var(--semi-color-fill-1);
+  color: var(--semi-color-text-2);
+}
+
+.side-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.side-section-grow {
+  flex: 1;
+  min-height: 0;
+}
+
+.side-section-head {
+  padding: 10px 8px 6px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.side-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 0 8px;
+}
+
+/* 左栏资料夹模式（DESIGN_V2 §5.3：左栏切到该系列的资料列表） */
+.folder-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.folder-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 8px;
+}
+
+.folder-pane-title {
+  padding: 0 6px 8px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-pane-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folder-pane-empty-text {
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--semi-color-text-2);
+}
+
+.folder-pane-empty-cta {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+
+
+
+.folder-pane-foot {
+  flex-shrink: 0;
+  padding: 8px 6px 2px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.side-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 6px 2px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.side-foot-hint {
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-spacer {
+  flex: 1;
+}
+
+.tree-error {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--semi-color-danger);
+}
+
+.tree-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  /* 行高对齐飞书（列表行约 32px），避免标题被状态徽标挤到只剩十几个字 */
+  padding: 4px 2px;
+}
+
+.tree-node-icon {
+  color: var(--semi-color-text-2);
+  flex-shrink: 0;
+}
+
+.tree-node-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+/* 空 stub 不挂灰色徽标：标题压暗即可 */
+.tree-node-title.is-empty {
+  color: var(--semi-color-text-2);
+}
+
+/* 归档区（树=活着的库，archived 单独沉底，可恢复可删） */
+.tree-archive {
+  margin-top: 12px;
+  border-top: 1px solid var(--semi-color-border);
+  padding-top: 8px;
+}
+.tree-archive-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  user-select: none;
+}
+.tree-archive-head:hover {
+  color: var(--semi-color-text-1);
+}
+.tree-archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tree-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 14px;
+  border-radius: var(--semi-border-radius);
+  cursor: pointer;
+}
+.tree-archive-row:hover {
+  background: var(--semi-color-fill-1);
+}
+.tree-archive-row.active {
+  background: var(--semi-color-primary-light-default);
+}
+.tree-archive-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+.tree-archive-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.tree-archive-row:hover .tree-archive-actions,
+.tree-archive-row:focus-within .tree-archive-actions {
+  display: inline-flex;
+}
+.tree-archive-del {
+  color: var(--semi-color-text-2);
+}
+.tree-archive-del:hover {
+  color: var(--semi-color-danger);
+}
+
+/* 行尾"…"按钮：**始终占位、只切 visibility**。
+   以前是 display:none → hover 时 inline-flex：按钮 24px 高，一出现把行高从
+   ~27.5px 撑到 32px，标题垂直居中也跟着挪 ~2px（用户量的 11↔13px）。
+   滚轮滚动时行从光标底下过，反复进入/离开 hover = 反复长高缩回——就是
+   "滑动会抖、像容器放大"。占位不动，行高恒定。 */
+.tree-node-actions {
+  display: inline-flex;
+  visibility: hidden;
+  flex-shrink: 0;
+}
+
+.tree-node:hover .tree-node-actions,
+.tree-node:focus-within .tree-node-actions {
+  visibility: visible;
+}
+
+.tree-more {
+  color: var(--semi-color-text-2);
+}
+
+.top-bar {
+  flex-shrink: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-0);
+}
+
+.top-bar-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.top-bar-updated {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  white-space: nowrap;
+}
+
+.top-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 顶栏以下：正文 + 右侧 AI 侧栏并排 */
+.shell-work {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ===== 右侧边栏（Altas｜关联与媒体）——右缘唯一的收放机制（2026-09-16 用户拍板）=====
+   悬浮窗改回贴右标签侧栏：当时的窄栏渲染雷（min-width:auto 连串 / nowrap 撑破）已被
+   系列前后端修复收口（对话层 min-width:0、overflow-wrap、工具卡摘要截断）。
+   展开 = 480px 栏（标签条 + 收起 chevron）；收起 = 右缘 44px 图标拉门。
+   两个标签**常驻挂载**（切标签/收起只 CSS 隐藏）——在途工单的 SSE 不断线。 */
+.right-side {
+  flex: none;
+  display: flex;
+  min-height: 0;
+  width: 44px;
+  border-left: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-0);
+  transition: width 0.16s ease;
+}
+
+.right-side.is-open {
+  width: 480px;
+}
+
+.right-side-rail.is-hidden,
+.right-side-main.is-hidden {
+  display: none;
+}
+
+.right-side-rail {
+  flex: none;
+  width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.right-side-rail-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--semi-border-radius);
+  background: transparent;
+  color: var(--semi-color-text-1);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.right-side-rail-btn:hover {
+  background: var(--semi-color-fill-2);
+  color: var(--semi-color-text-0);
+}
+
+/* 紫 = AI 专属强调：拉门的 AI 图标（VISUAL_SPEC §2） */
+.right-side-rail-btn.is-ai {
+  color: var(--semi-color-ai-purple);
+}
+
+/* 在途工单计数徽标（红 = 需要留意的状态色，不是 AI 紫） */
+.right-side-rail-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--semi-color-danger);
+  color: var(--semi-color-white);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.right-side-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.right-side-chrome {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.right-side-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.right-side-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.right-side-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: var(--semi-border-radius);
+  background: transparent;
+  color: var(--semi-color-text-1);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.right-side-tab:hover {
+  background: var(--semi-color-fill-2);
+}
+
+.right-side-tab.is-active {
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+/* AI 标签的图标恒紫（AI 专属强调），与选中态解耦 */
+.right-side-tab-ai {
+  display: inline-flex;
+  color: var(--semi-color-ai-purple);
+}
+
+.right-side-collapse {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--semi-border-radius);
+  background: transparent;
+  color: var(--semi-color-text-2);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.right-side-collapse:hover {
+  background: var(--semi-color-fill-2);
+  color: var(--semi-color-text-0);
+}
+
+.right-side-pane {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.right-side-tabpane {
+  position: absolute;
+  inset: 0;
+  display: none;
+  min-height: 0;
+}
+
+.right-side-tabpane.is-active {
+  display: block;
+}
+
+/* ===== 「关联与媒体」面板（2026-09-16 单标签:正片位/混杂/待确认/作品关系） ===== */
+.lm-panel {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 14px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lm-loading,
+.lm-error {
+  padding: 16px 4px;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.lm-retry {
+  margin-left: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* 段(正片位/混杂)与卡(待确认)共用一套底色容器 */
+.lm-section,
+.lm-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--semi-color-fill-0);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-section-head,
+.lm-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lm-section-head > .semi-button,
+.lm-card-head .semi-button {
+  margin-left: auto;
+}
+
+.lm-card-head .semi-button + .semi-button {
+  margin-left: 0;
+}
+
+.lm-section-title {
+  font-size: 13px;
+}
+
+.lm-section-icon {
+  color: var(--semi-color-text-2);
+  font-size: 14px;
+}
+
+.lm-count {
+  font-size: 11px;
+  color: var(--semi-color-text-3);
+}
+
+.lm-empty {
+  font-size: 12px;
+  color: var(--semi-color-text-3);
+  padding: 2px 0 4px;
+  line-height: 1.5;
+}
+
+.lm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 行契约(与 lib-suggest-row 一致):行内不折行,标题/副行各自单行省略 */
+.lm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.lm-row-pending {
+  align-items: flex-start;
+  padding: 4px 0;
+}
+
+.lm-row-cover {
+  flex: none;
+  width: 64px;
+  height: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--semi-color-fill-1);
+}
+
+.lm-row-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lm-row-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lm-row-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-row-sub {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lm-row-more {
+  flex: none;
+  margin: 0;
+}
+
+/* 正片位槽:介质对应的槽标「本家」,左侧细线强调 */
+.lm-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-slot.is-home {
+  border-left: 2px solid var(--semi-color-primary-light-default);
+  padding-left: 10px;
+}
+
+.lm-slot-label {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lm-slot-icon {
+  font-size: 14px;
+}
+
+.lm-slot .lm-row {
+  min-height: 40px;
+}
+
+/* 检索入口(细条 + 卡内共用) */
+.lm-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.lm-search-input {
+  width: 112px !important;
+}
+
+/* 待确认空态细条 */
+.lm-slim {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--semi-color-fill-0);
+}
+
+.lm-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 作品关系行 */
+.lm-rel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.lm-rel-link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--semi-color-text-0);
+}
+
+.lm-rel-link:hover {
+  color: var(--semi-color-link);
+}
+
+.lm-rel-arrow {
+  color: var(--semi-color-text-3);
+  margin-right: 4px;
+  font-size: 12px;
+}
+
+/* 已忽略回收区 */
+.lm-dismissed {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.lm-dismissed-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--semi-color-fill-1);
+}
+
+.lm-toggle {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  cursor: pointer;
+}
+
+.lm-toggle:hover {
+  color: var(--semi-color-link);
+}
+
+
+.dialog-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dialog-label {
+  width: 64px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.dialog-hint {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+/* ===== Home: Feishu-style document list ===== */
+.home-view {
+  flex: 1;
+  overflow: auto;
+}
+
+/* 限宽的是内容不是滚动容器（同设置页）：滚动条落在窗口边，内容居中 */
+.home-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+}
+
+.home-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 860px;
+  margin-bottom: 8px;
+}
+
+/* 媒体库建议待办卡：首页顶部概览入口，非 AI 内容，走中性色阶 */
+.home-pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 860px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-large);
+  background: var(--semi-color-fill-0);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.home-pending:hover {
+  background: var(--semi-color-fill-1);
+}
+
+.home-pending-icon {
+  color: var(--semi-color-text-2);
+  flex-shrink: 0;
+}
+
+.home-pending-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-pending-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--semi-color-text-0);
+}
+
+.home-pending-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.home-pending-cta {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+  transition: color 0.15s ease;
+}
+
+.home-pending:hover .home-pending-cta {
+  color: var(--semi-color-text-0);
+}
+
+.home-section {
+  max-width: 860px;
+  margin-top: 26px;
+}
+
+.home-section-title {
+  margin: 0 0 4px;
+  color: var(--semi-color-text-0);
+}
+
+.home-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* 批次卡（AI 面板顶部） */
+.batch-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-large);
+  background: var(--semi-color-fill-0);
+}
+
+.batch-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.batch-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.batch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--semi-border-radius-medium);
+  cursor: pointer;
+}
+
+.batch-row:hover {
+  background: var(--semi-color-fill-1);
+}
+
+.batch-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.doc-foot-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 待确认的修订（修订模式产物） */
+.pending-revisions {
+  margin: 8px 32px 0;
+}
+
+.pending-rev-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pending-rev-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.pending-rev-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pending-rev-reason {
+  font-size: 13px;
+  color: var(--semi-color-text-0);
+}
+
+.doc-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.home-empty {
+  padding: 12px 2px;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.doc-list {
+  border: none;
+  background: transparent;
+}
+
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: var(--semi-border-radius-large);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.doc-row:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.doc-row-icon {
+  flex-shrink: 0;
+  color: var(--semi-color-text-2);
+}
+
+.doc-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-row-title {
+  font-size: 14px;
+  color: var(--semi-color-text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-row-path,
+.doc-row-time {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  white-space: nowrap;
+}
+
+.home-foot {
+  max-width: 860px;
+  margin-top: 28px;
+  padding-top: 12px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.home-blank {
+  max-width: 860px;
+}
+
+/* ===== 正文：文档头（飞书母本：主标题 + 作者行 + AI 共建） ===== */
+.doc-header {
+  flex-shrink: 0;
+  padding: 26px 32px 12px;
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* 标题输入框：Semi 把 wrapper 和内层 input 都写死 32px 高（.semi-input-wrapper-default
+   / .semi-input-default），32px 字号的标题塞不进去会被裁。两层都得放开高度，
+   选择器带上 Semi 的类以压过同优先级的 -default 规则。 */
+.doc-title-input.semi-input-wrapper {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 0;
+  height: auto;
+}
+
+.doc-title-input .semi-input {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 2px 0;
+  height: auto;
+}
+
+.doc-title-read {
+  margin: 0 !important;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--semi-color-text-0);
+}
+
+.doc-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 标题与作者行之间留白（对齐飞书母本） */
+  margin-top: 18px;
+  min-height: 28px;
+}
+
+.doc-meta-author {
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+
+.doc-meta-sep {
+  color: var(--semi-color-border);
+}
+
+.doc-meta-time {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.doc-meta-spacer {
+  flex: 1;
+}
+
+.doc-meta .ai-coedit-btn {
+  margin-left: 2px;
+}
+
+/* AI 唯一强调色：紫（仅用于 AI 元素） */
+.ai-coedit-btn {
+  /* 关键：不改 Semi 的选择器，只在该元素作用域里换掉它读取的 token。
+     Semi 的 solid primary 用 --semi-color-primary / -hover / -active，
+     直接写 background 会被 `.semi-button-primary:not(...):hover`（(0,5,0)）在 hover 时压回品牌蓝，
+     换成"就地改变量"既不用内联、也不用权重军备竞赛。 */
+  --semi-color-primary: var(--semi-color-ai-purple);
+  --semi-color-primary-hover: var(--semi-color-ai-purple-hover);
+  --semi-color-primary-active: var(--semi-color-ai-purple-active);
+  background: var(--semi-color-ai-purple);
+  color: var(--semi-color-white);
+}
+
+.ai-coedit-btn:hover {
+  background: var(--semi-color-ai-purple-hover);
+  color: var(--semi-color-white);
+}
+
+.ai-coedit-btn:active {
+  background: var(--semi-color-ai-purple-active);
+  color: var(--semi-color-white);
+}
+
+/* 空文档里的行内 AI 胶囊（飞书「AI 帮我写」的位置与形态） */
+.doc-empty-hint {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--semi-color-text-2);
+  z-index: 2;
+}
+
+.ai-inline-pill {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-circle);
+  background: var(--semi-color-bg-0);
+  color: var(--semi-color-ai-purple);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ai-inline-pill:hover {
+  background: var(--semi-color-fill-0);
+  border-color: var(--semi-color-ai-purple);
+}
+
+.doc-writing-banner {
+  margin: 0 32px 8px;
+}
+
+/* ── Altas 流式写作（对齐飞书写文档：落到哪段哪段有加载态，写完渐显回正文） ──
+   .live-tail 挂在"正在写的那一段"的块上：文字压暗表示还没写完；
+   段落写完时类被摘掉，透明度过过渡回 1 —— 就是"渐显为文字"那一刻。
+   尾巴块每帧是重建的（内容在长），带类出生不触发过渡；只有"活下来"的块
+   被摘类时才吃过渡，所以动画一定落在写完的段落上。 */
+.live-tail .bn-inline-content {
+  opacity: 0.58;
+  transition: opacity 0.5s ease;
+}
+
+/* MarkdownPreview（读模式）的流式尾：没有 .bn-inline-content 结构，整块压暗；
+   与 BlockNote 编辑器同节奏——段落写完（不再是末尾块）摘类渐显回正文。 */
+.md-preview .md-preview-block {
+  transition: opacity 0.5s ease;
+}
+.md-preview .md-preview-block.live-tail {
+  opacity: 0.58;
+}
+
+/* 文末的脉动落点条：属于 AI 的紫。自己管理寿命（不随块替换重建），动画不闪断 */
+.live-writer-bar {
+  width: 52px;
+  height: 4px;
+  border-radius: 2px;
+  margin: 6px 0 28px 4px;
+  background: var(--semi-color-ai-purple);
+  animation: live-writer-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes live-writer-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scaleX(0.65);
+    transform-origin: left center;
+  }
+  50% {
+    opacity: 0.9;
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-writer-bar {
+    animation: none;
+    opacity: 0.75;
+  }
+  .live-tail .bn-inline-content {
+    transition: none;
+  }
+  .md-preview .md-preview-block {
+    transition: none;
+  }
+}
+
+/* 选区工具栏：AI 动作一排在最左（对齐飞书「问问豆包 / 解释」的位置） */
+.ai-mention-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+}
+
+.ai-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--semi-border-radius-small);
+  background: transparent;
+  color: var(--semi-color-text-0);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-mention-item:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.ai-mention-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-mention-kind,
+.ai-mention-empty {
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.ai-mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px 4px 0;
+  padding: 2px 8px;
+  border-radius: var(--semi-border-radius-circle);
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+}
+
+/* 输入框右下角的上下文用量环：只对齐，颜色由组件按占用比例选 token */
+.ctx-meter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  cursor: default;
+}
+
+.tb-btn.active {
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.tb-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: rgba(var(--semi-yellow-4), 1);
+  box-shadow: inset 0 0 0 1px var(--semi-color-border);
+}
+
+/* ===== 题记：书页留白 =====
+   母本(Image: 无尽战争 Wiki)：上下通栏细线 + 居中衬线 + 左上/右下引号 + 右对齐署名，
+   **没有底色、没有边框盒子**。9a3ca2d 曾按「淡底」做成带底色的容器，这里改回留白。 */
+.doc-epigraph,
+.md-preview .doc-epigraph {
+  margin: 30px auto;
+  /* 编辑器里题记挂在 .bn-block-content（display: flex）下，作为 flex item 会
+     按内容收缩：阅读态 760px、编辑态 idle 625px、编辑态打开 textarea 后只剩
+     259px。钉成 100%（配合 max-width）让两态与阅读态同宽，进出编辑不再跳。 */
+  width: 100%;
+  max-width: 900px;
+  padding: 24px 0;
+  border-top: 1px solid var(--semi-color-border);
+  border-bottom: 1px solid var(--semi-color-border);
+  background: transparent;
+  text-align: center;
+  color: var(--semi-color-text-1);
+  font-family:
+    Georgia, 'Times New Roman', 'Noto Serif SC', 'Noto Serif JP', 'Hiragino Mincho ProN',
+    'Yu Mincho', 'Noto Serif KR', serif;
+}
+
+.doc-epigraph-content {
+  position: relative;
+  padding: 0.7em 2.2em;
+}
+
+/* 一对对角装饰引号：左上 “ / 右下 ” */
+.doc-epigraph-content::before,
+.doc-epigraph-content::after {
+  position: absolute;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(2rem, 3.4vw, 3rem);
+  line-height: 1;
+  color: var(--semi-color-primary);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.doc-epigraph-content::before {
+  content: '“';
+  top: 0;
+  left: 0;
+  transform: translate(0.1em, 0.15em);
+}
+
+.doc-epigraph-content::after {
+  content: '”';
+  right: 0;
+  bottom: 0;
+  transform: translate(-0.08em, 0.3em);
+}
+
+.doc-epigraph-body {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.doc-epigraph-line {
+  margin: 0.1em 0;
+}
+
+.doc-epigraph-line--display {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.3em 0.7em;
+  line-height: 1.7;
+  color: var(--semi-color-text-1);
+}
+
+.doc-epigraph-segment {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.doc-epigraph-segment-text {
+  letter-spacing: inherit;
+}
+
+.doc-epigraph-punctuation {
+  letter-spacing: 0;
+  margin-left: -0.08em;
+}
+
+.doc-epigraph-line--latin {
+  font-size: clamp(0.82rem, 0.72vw + 0.58rem, 1rem);
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: var(--semi-color-text-2);
+}
+
+.doc-epigraph-author {
+  margin-top: 1rem;
+  text-align: right;
+  font-size: clamp(0.84rem, 0.62vw + 0.7rem, 1.02rem);
+  line-height: 1.35;
+  color: var(--semi-color-text-2);
+  font-style: normal;
+}
+
+.doc-epigraph.is-editable {
+  cursor: text;
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  transition:
+    background-color 0.12s ease,
+    outline-color 0.12s ease;
+}
+
+.doc-epigraph.is-editable:hover {
+  background: var(--semi-color-primary-light-hover);
+  outline-color: var(--semi-color-primary-light-active);
+}
+
+.doc-epigraph.is-editable:focus-visible {
+  outline-color: var(--semi-color-primary);
+}
+
+/* 正在编辑：整块给虚线框 + 更实的淡蓝底，和「可点但还没点」区分开 */
+.doc-epigraph.is-editing {
+  background: var(--semi-color-primary-light-hover);
+  outline: 1px dashed var(--semi-color-primary);
+  outline-offset: -1px;
+  border-radius: var(--semi-border-radius-medium);
+}
+
+.doc-epigraph-input {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--semi-color-text-1);
+  font-family: Georgia, 'Noto Serif SC', serif;
+  font-size: 16px;
+  line-height: 2;
+  text-align: center;
+}
+
+/* 说明块：> 说明：…（左边一条竖线 + 浅灰底、斜体，与编辑器里的引用同款）
+   注意 :not 要排除 .doc-epigraph-body —— 题记正文本身是个 blockquote，
+   类名挂在 figure 上是 .doc-epigraph，写成 :not(.doc-epigraph) 会连它一起染上。 */
+.md-preview blockquote:not(.doc-epigraph-body) {
+  margin: 12px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--semi-color-primary);
+  border-radius: var(--semi-border-radius-small);
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-style: italic;
+}
+
+/* 大纲：编号 + 文本 */
+.outline-title {
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--semi-color-text-0);
+  font-size: 13px;
+}
+
+.outline-number {
+  flex-shrink: 0;
+  margin-right: 6px;
+  color: var(--semi-color-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.outline-item.active .outline-number {
+  color: var(--semi-color-primary);
+}
+
+.outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 版本历史行 */
+.revision-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.revision-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.revision-version {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+/* 正文列对齐：文档头 / 编辑器 / 阅读态共用同一条 756px 文本栏 */
+.editor-sync-hint {
+  white-space: nowrap;
+}
+
+.block-editor-inner {
+  max-width: 820px;
+}
+
+.bn-root .bn-editor {
+  padding: 0 32px 48px;
+}
+
+.preview-pane {
+  padding: 0 32px 48px;
+}
+
+.md-preview {
+  max-width: 756px;
+}
+
+/* ===== 海报砖块（容器卡内部用；网格容器是 .pool-tiles） =====
+   **2:3 竖版**：实测三源封面 88% 是 2:3 海报（GA 全是 600×900、Emby 是 200×300、
+   Komga 同类），16:9 会把海报的标题美术裁掉——那是辨识度最高的一块。
+   （Emby 里少数拿 backdrop 当封面的横图会被裁成竖条，约 12%，认了这个取舍。）
+   标题单行省略、副行与角标分居两端；封面本身可点 = 打开原条目。 */
+.lib-poster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lib-poster-cover {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--semi-color-fill-1);
+  border: 1px solid var(--semi-color-border);
+}
+
+.lib-poster-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 横版封面（文字 logo / backdrop 当封面用的）：裁成 2:3 只剩中间一条，改让它整张可见 */
+.lib-poster-cover img.is-wide {
+  object-fit: contain;
+  background: var(--semi-color-fill-0);
+}
+
+.lib-poster-cover:hover {
+  border-color: var(--semi-color-primary-light-default);
+}
+
+.lib-poster-ph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--semi-color-text-3);
+  font-size: 18px;
+}
+
+.lib-poster-title {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-poster-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 22px;
+}
+
+.lib-poster-sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-poster-action {
+  flex: none;
+  display: inline-flex;
+}
+
+.lib-suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  /* 悬停给一条底色（对齐 .doc-row）：行是"可操作单元"，得先看得出来 */
+  padding: 2px 8px;
+  border-radius: var(--semi-border-radius-medium);
+  transition: background-color 0.15s ease;
+}
+
+.lib-suggest-row:hover {
+  background: var(--semi-color-fill-0);
+}
+
+/* 行末「⋯」：悬停/聚焦才显现。
+   用 visibility 占位而不是 display:none——后者会让操作区在 hover 时从 0 宽度
+   变成有宽度，行高与标题宽度跟着抖一下（.tree-node-actions 踩过同一个坑）。 */
+.lib-row-actions {
+  flex: none;
+  display: inline-flex;
+  visibility: hidden;
+}
+
+.lib-suggest-row:hover .lib-row-actions,
+.lib-suggest-row:focus-within .lib-row-actions {
+  visibility: visible;
+}
+
+/* 触屏没有 hover：一直显出来，否则那些操作根本点不到 */
+@media (hover: none) {
+  .lib-row-actions {
+    visibility: visible;
+  }
+}
+
+/* 组内「展开剩余 N 条 / 收起」 */
+.pool-more {
+  margin-top: 2px;
+}
+
+/* 页签右侧的工具栏（搜索 + 筛选）：1378 条那个量级，搜索是必需的，别只给一个筛选 */
+.pool-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 页级工具栏（搜索 + 筛选）——三段都受它过滤，所以摆在页头下面而不是某个页签右侧 */
+.pool-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* 分段（② 可成批清 / ③ 其余） */
+.pool-section {
+  margin-top: 14px;
+}
+
+.pool-section-head {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.pool-container-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pool-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ===== 容器卡内的封面砖块 =====
+   容器已经把范围定死了（"丧尸围城"这一组），剩下的问题是"这些我都要/都不要"——
+   那是识别任务，封面比标题快。整页的主结构仍不是墙（见 LibraryPool 顶部注释）。
+   砖块是 2:3 竖版海报（见 .lib-poster-cover），所以列宽比 16:9 时窄一些。 */
+.pool-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 12px 10px;
+  padding-top: 4px;
+}
+
+.pool-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pool-tile-coverwrap {
+  position: relative;
+}
+
+/* 砖块上的 ⋯：悬停/聚焦才显现（与行同一个 visibility 占位法，防行高抖动） */
+.pool-tile-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--semi-color-bg-2);
+}
+
+.pool-tile:hover .lib-row-actions,
+.pool-tile:focus-within .lib-row-actions {
+  visibility: visible;
+}
+
+@media (hover: none) {
+  .pool-tile .lib-row-actions {
+    visibility: visible;
+  }
+}
+
+/* 砖块 = 勾选单位：整块可点，选中时封面描一圈主色 */
+.pool-tile {
+  cursor: pointer;
+}
+
+.pool-tile.is-selected .lib-poster-cover {
+  box-shadow: 0 0 0 2px var(--semi-color-primary);
+}
+
+.pool-tile-check {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--semi-color-white);
+  background: var(--semi-color-fill-2);
+}
+
+.pool-tile-check.is-on {
+  color: var(--semi-color-primary);
+  background: var(--semi-color-bg-2);
+}
+
+/* 「Wiki 已有」角标：这条已经在 Wiki 里有节点了，不用建档 */
+.pool-tile-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--semi-color-primary);
+  background: var(--semi-color-bg-2);
+}
+
+.pool-tile-new {
+  flex: none;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--semi-color-warning);
+  background: var(--semi-color-warning-light-default);
+}
+
+/* 选中 ≥1 时浮在底部的批量条 */
+.pool-bulkbar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: var(--semi-border-radius-medium);
+  background: var(--semi-color-bg-2);
+  box-shadow: var(--semi-shadow-elevated);
+}
+
+.pool-bulkbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ③ 其余：每来源一行摘要（默认全折叠） */
+.pool-rest-row {
+  justify-content: flex-start;
+  height: 32px;
+  padding: 0 4px;
+}
+
+/* ① 待裁决行里的"建议目标"字段——这一行唯一的决策信息，别埋进副行文字 */
+.pool-ai-target {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+}
+
+.pool-ai-target-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--semi-color-text-0);
+}
+
+
+/* 待写正文页（/stubs）：勾选批量条 + 表内两行单元格 */
+.stub-wrap {
+  margin-top: 14px;
+}
+
+.stub-bulk {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--semi-border-radius-medium);
+  background: var(--semi-color-fill-0);
+}
+
+.stub-bulk-search {
+  width: 220px;
+}
+
+.stub-bulk-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stub-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stub-cell-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stub-cell-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 长条契约:行内内容不许折行——标题/副行各自单行省略,行高恒定。
+   「关联与媒体」媒体区的底层排版规则（各行的 title/sub 自带省略，这里不再需要通用类）。 */
+
+.lib-suggest-cover {
+  flex: none;
+  width: 64px;
+  height: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--semi-color-fill-1);
+}
+
+.lib-suggest-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.lib-suggest-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lib-suggest-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-suggest-link {
+  flex: none;
+  font-size: 12px;
+  color: var(--semi-color-link);
+  text-decoration: none;
+}
+
+/* AI 建议 · 拒绝反馈（拒绝的是「挂法」：条目仍是一等公民） */
+.pool-rejected-note {
+  font-size: 12px;
+  color: var(--semi-color-warning);
+}
+
+/* 「已拒绝」段：折在 ① 卡里（不再另起一块散在外面），竖排、与可裁决行同一套行样式 */
+.pool-rejected {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--semi-color-border-light);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 拒绝建议弹窗正文 */
+.reject-modal {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 「关联到 GameAtlas」弹窗里的结果列表 */
+.lib-link-list {
+  max-height: 340px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* 设置页 · Emby 媒体库角色（Semi Table 只读展示 + 弹窗编辑） */
+.settings-roles-table {
+  margin-top: 8px;
+}
+
+.roles-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.roles-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+/* 角色编辑弹窗：批量操作条 */
+.role-modal-bulk {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+
+.role-modal-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* 节点信息里的库外链行（一行一条链 + 解除） */
+.link-row {
+  display: flex;
+  align-items: center;
+}
+
+/* 建议池页 */
+.pool-page {
+  flex: 1;
+  overflow: auto;
+}
+
+.pool-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+}
+
+.pool-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.pool-head-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.pool-card {
+  margin-top: 14px;
+}
+
+/* 来源分栏：平级页签（GameAtlas / Emby / Komga）点击切换；页签本体用 Semi Tabs 的 card 型 */
+.pool-tab-body {
+  margin-top: 4px;
+}

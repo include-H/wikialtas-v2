@@ -1,0 +1,35 @@
+# ── WikiAtlas v2 ───────────────────────────────────────────────
+# 密钥 / 本地工具状态：不入库
+.secrets/
+.tooling/
+.commandcode/
+
+# 依赖 / 构建产物
+node_modules/
+target/
+dist/
+build/
+*.tsbuildinfo
+vite.config.ts.timestamp-*
+
+# 环境与日志
+.env
+.env.*
+*.log
+
+# 本地数据
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# 编辑器 / 系统
+.DS_Store
+frontend/.vite/
+
+# ── archive/v1（v1 只作参考，不入库"可再生/运行时"的部分）───────
+# 两个外部参考仓库（各自带 .git，可再 clone；共约 300M）
+archive/v1/codex/
+archive/v1/deepseek-harness/
+# v1 的运行时数据（D2：不迁 v1 数据）
+archive/v1/backend/data/

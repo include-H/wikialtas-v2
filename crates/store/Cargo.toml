@@ -1,0 +1,14 @@
+[package]
+name = "wikiatlas-store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wikiatlas-domain = { path = "../domain" }
+chrono = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
