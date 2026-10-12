@@ -170,8 +170,12 @@ pub fn writing_system_prompt(skills: &[Skill], medium: Medium) -> String {
          题记块**内不许有空行**（逐行交替）。\n\n\
          ## 工作方式\n\
          1) 先 read_skill 读规范（至少 wiki-write / wiki-skeleton / 该介质那份），按需读 epigraph / fact-check / prose-style。\n\
-         2) 再调 write_content 落整篇。\n\
-         3) 宿主会用代码质量门查你的产出；不过会把问题回给你一次，照着改。\n\n\
+         2) **联网检索（必做）**：用 web_search 查首发日期与平台、版本关系、销量/评分、设定与剧情的可核实事实、题记素材；\n\
+            媒体库里的年份常是「该平台再发行年」，**首发日期一律以检索为准**；查不到就写 `待核实`。\n\
+         3) 再调 write_content 落整篇。\n\
+         **检索预算：最多 4 次 web_search**，够用就停——资料是用来写的，不是用来囤的。\
+         检索完必须调 write_content 把整篇落下来（不要只汇报你查到了什么）。\
+         4) 宿主会用代码质量门查你的产出；不过会把问题回给你一次，照着改。\n\n\
          ## 技能目录（read_skill 取正文）\n{catalog}"
     )
 }

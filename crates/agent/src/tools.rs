@@ -3,7 +3,7 @@
 //! 从 `runtime.rs` 拆出来（单文件 ≤300 行，D41）。
 
 use crate::guard::{self, DupCallGuard, Verdict};
-use crate::Result;
+
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -13,6 +13,8 @@ use wikiatlas_store::content;
 pub const WRITE_TOOL: &str = "write_content";
 /// 读技能正文（`docs/prompts.md §4`：L0 目录常驻，正文按需读）。
 pub const READ_SKILL_TOOL: &str = "read_skill";
+/// 联网检索（`docs/prompts.md §2.3` 第 2 步：**必做**）。
+pub const WEB_SEARCH_TOOL: &str = "web_search";
 
 
 /// `read_skill`：从技能根读正文（找不到就明确说没这个技能，别编）。
@@ -48,6 +50,18 @@ pub fn tool_defs() -> Value {
                 "section": { "type": "string", "description": "只取某节（可选）" }
             },
             "required": ["name"]
+        }
+    }, {
+        "type": "function",
+        "name": WEB_SEARCH_TOOL,
+        "description": "联网检索。写正文前必做：查首发日期与平台、版本关系、销量/评分、可指出处的台词。                        结果里的 title/url/snippet 就是你的事实账本，**别凭记忆下断言**。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "检索词（中/英都可）" },
+                "num": { "type": "integer", "description": "要几条，默认 5，上限 10" }
+            },
+            "required": ["query"]
         }
     }, {
         "type": "function",
@@ -115,4 +129,83 @@ pub async fn call_write(
         Ok(d) => json!({ "ok": true, "wrote": true, "base_ver": d.base_ver, "summary": args.summary }),
         Err(e) => json!({ "ok": false, "reason": format!("落草稿失败：{e}") }),
     }
+}
+
+/// `web_search`：走 Exa（`.secrets/credentials.md` 里那个 key）。
+/// 没配 key 就明确说"检索不可用"，**不让模型假装查过**。
+pub async fn call_web_search(arguments: &str) -> Value {
+    #[derive(serde::Deserialize)]
+    struct Args {
+        query: String,
+        #[serde(default)]
+        num: Option<u32>,
+    }
+    let args: Args = match serde_json::from_str(arguments) {
+        Ok(a) => a,
+        Err(e) => return json!({ "ok": false, "reason": format!("参数不是合法 JSON：{e}") }),
+    };
+    let key = match exa_key().await {
+        Some(k) => k,
+        None => return json!({ "ok": false, "reason": "检索不可用：没配 exa.api_key" }),
+    };
+    let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(40)).build() {
+        Ok(c) => c,
+        Err(e) => return json!({ "ok": false, "reason": format!("HTTP 客户端建不起来：{e}") }),
+    };
+    let body = json!({
+        "query": args.query,
+        "numResults": args.num.unwrap_or(5).min(10),
+        "contents": { "text": { "maxCharacters": 1500 } }
+    });
+    let resp = client
+        .post("https://api.exa.ai/search")
+        .header("x-api-key", key)
+        .json(&body)
+        .send()
+        .await;
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => return json!({ "ok": false, "reason": format!("检索失败：{e}") }),
+    };
+    let code = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !code.is_success() {
+        let msg: String = text.chars().take(160).collect();
+        return json!({ "ok": false, "reason": format!("检索 HTTP {code}：{msg}") });
+    }
+    let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    let results: Vec<Value> = v
+        .get("results")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .map(|r| {
+                    json!({
+                        "title": r.get("title").cloned().unwrap_or(Value::Null),
+                        "url": r.get("url").cloned().unwrap_or(Value::Null),
+                        "snippet": r.get("text").and_then(Value::as_str).unwrap_or("").chars().take(700).collect::<String>(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    json!({ "ok": true, "count": results.len(), "results": results })
+}
+
+/// Exa key：secrets 表优先（`exa.api_key`），环境变量兜底。**值绝不外泄**。
+pub async fn exa_key() -> Option<String> {
+    if let Ok(k) = std::env::var("WIKIATLAS_EXA_API_KEY") {
+        if !k.trim().is_empty() {
+            return Some(k);
+        }
+    }
+    let url = std::env::var("WIKIATLAS_DB_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .ok()?;
+    let pool = wikiatlas_store::connect(&url).await.ok()?;
+    wikiatlas_store::secrets::get_secret(&pool, "exa.api_key")
+        .await
+        .ok()
+        .flatten()
+        .filter(|v| !v.trim().is_empty())
 }

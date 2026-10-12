@@ -20,7 +20,7 @@ use uuid::Uuid;
 use wikiatlas_store::{content, nodes, runs};
 
 /// 单次工单的模型轮次上限（防绕圈，`behavior-notes.md §3`）。
-const MAX_ITERS: u32 = 6;
+const MAX_ITERS: u32 = 12;
 
 #[derive(Debug, Clone)]
 pub struct RunSummary {
@@ -192,6 +192,8 @@ async fn run_loop(
                 call_write(pool, node_id, base_ver, arguments, &node.status, &old_body, run_id, &mut dup).await
             } else if name == crate::tools::READ_SKILL_TOOL {
                 call_read_skill(arguments)
+            } else if name == crate::tools::WEB_SEARCH_TOOL {
+                crate::tools::call_web_search(arguments).await
             } else {
                 json!({ "ok": false, "reason": format!("没有这个工具：{name}") })
             };

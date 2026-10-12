@@ -43,7 +43,7 @@
 | 代码基线 | ✅ M0（`crates/{domain,store,api}` + `frontend/` 骨架 + 尖刺 A）· ✅ M1（`crates/{sources,worker}` + 池子 API/UI + 0002 迁移） |
 | 产出基准 | **规则** = `/root/WikiAltas/skills`（14 技能 + `samples/` 18 篇）；**质量目标** = `/root/Game_Wiki` 真产出（D3） |
 | 当前里程碑 | **M4 写作与质量门** |
-| 下一步（唯一） | M4 续：① 查清「长文生成时第三轮请求长时间无事件」（先加**流空闲超时**与心跳，别再挂死）② 补 `web_search` 工具（`prompts.md §2.3` 第 2 步是**必做**，模型现在只能凭记忆写）③ 用真跑把一篇调到 `/root/Game_Wiki` 档并过门 → 定稿 → 快照 |
+| 下一步（唯一） | M4 续：**把写作拆成两步式**（`ai.md §4` / `prompts.md §2.2`）——现在一个 loop 里既检索又写作，模型会把轮次全花在检索上（实测两次都在 6–12 轮里只搜不写）。第一步 `analysis` run 产出**结构化事实账本 + 骨架**（便宜档），第二步 `generation` run 只拿账本写正文。跑通后再调 `/root/Game_Wiki` 档 → 过门 → 定稿 → 快照 |
 | 阻塞项 | 无 |
 | 需要产品方做的事 | **无**（已委托；一切按文档与本文裁决） |
 | 仓库状态 | ✅ 已**重新起仓**（旧 `.git` 备份在 `/tmp/wikialtas-git-backup-*.tar.gz`）；`origin`=Gitea（**新历史尚未推送**，首推需 `-f`）。M1 后**工作树待提交** |
@@ -60,7 +60,7 @@
 | **M1 媒体库进料** | ✅ | `library-sync.md §1–3` | **真跑过**：真库（192.168.1.4）扫三源 → 252(GA)+1523(Emby)+113(Komga) 条落 `library_manifest` → 池子列出「有/无文档」。见 `scripts/e2e-library.sh`（15/15） |
 | **M2 建档与关联** | ✅ | `library-sync.md §2 §4` | **真跑过**：池子点「建档」→ 树出系列节点 + work 文档 + 链 active；与父同名 → 加介质后缀（`SPY×FAMILY間諜家家酒（漫画）`）；解链只删链、文档还在。见 `scripts/e2e-link.sh`（17/17） |
 | **M3 Agent 内核**（尖刺 B） | ✅ | `backend.md §5 §6` · `behavior-notes.md` | **真跑过（真模型）**：Altas 里发一句话 → `function_call_arguments.delta` → 14 段 `content.delta` → 写工具执行 → **草稿落库** → 浏览器实时看到正文。见 `scripts/e2e-run.sh`（11/11） |
-| **M4 写作与质量门** | 🟡 | `ai.md §4` · `prompts.md §2.3 §3` · `tools.md §2` · **D3** | 空库跑一篇 → **达到 `/root/Game_Wiki` 质量档** → 过质量门 → 定稿 → 快照。**已落**：质量门（代码，13 项里的 9 项机械项 + 1 条提醒）· 技能 L0 目录 + `read_skill` 工具 · 提示词带上骨架/硬规则/质量门靶子 · 门不过自动回模型改一次（`prompts.md §3.1`）。**卡点**：长文生成时**第三轮请求长时间无事件**（3.5 分钟零事件，人工中止）——先加流空闲超时 |
+| **M4 写作与质量门** | 🟡 | `ai.md §4` · `prompts.md §2.3 §3` · `tools.md §2` · **D3** | 空库跑一篇 → **达到 `/root/Game_Wiki` 质量档** → 过质量门 → 定稿 → 快照。**已落**：质量门（代码，13 项里的 9 项机械项 + 1 条提醒）· 技能 L0 目录 + `read_skill` 工具 · 提示词带上骨架/硬规则/质量门靶子 · 门不过自动回模型改一次（`prompts.md §3.1`）。**卡点（已解决一半）**：① 流空闲超时 ✅ 已加（90s 无事件即报错收尾，不再挂死）② `web_search` ✅ 已接（Exa，实测 7 次检索全 ok）③ ❌ **仍卡在"模型只检索不落笔"**：一个 loop 里既查又写，轮次全花在检索上 → 按 `ai.md §4` 拆成 analysis→generation 两步 |
 | **M5 关系与综合** | ⬜ | `features.md §6.5` · `tools.md §2` | 综合页挂关系 → 关联展示 → 索引页由宿主更新 |
 | **M6 Review 与体检** | ⬜ | `ai.md §9` · `features.md §6` | 制造孤立节点/失效链/定稿未反哺 → 体检列出 → Review 可裁决 |
 | **M7 反哺与失效重挂** | ⬜ | `library-sync.md §5 §6` | 定稿 → GA/Komga 收到；停一个库条目 → 链 stale + 重挂候选 |
@@ -122,6 +122,7 @@
 
 | 日期 | 里程碑 | 做了什么 | 证据 |
 |---|---|---|---|
+| 2026-10-12 | **M4**（联网+超时） | `agent::client` 加**流空闲超时**（90s 无事件即 Err 收尾——长文可以写很久，但不许挂着不动）· `web_search` 工具（Exa，secrets `exa.api_key`；返回 title/url/snippet 当事实账本）· 系统提示加检索预算（≤4 次）+ "检索完必须落笔" · `MAX_ITERS` 6→12 | 真跑实测：`web_search` 7 次全 ok；但**模型只检索不落笔**（两次都这样）→ 结论写进下一步：按 `ai.md §4` 拆两步式 |
 | 2026-10-12 | **M4**（基础） | `agent::quality`（质量门：标题/说明行/题记围栏与块内空行/1–7 章齐全与跳号/第 5 章按介质/套话黑名单/字数下限；名场面 `；` 只提醒不硬拦）· `agent::prompt`（扫 `skills/*/SKILL.md` 解析 front matter → **L0 目录只放 name+description+何时用/何时不用**，正文靠 `read_skill`；写作系统提示带骨架/硬规则/质量门靶子）· runtime 接上 `read_skill` + 写完后跑门、不过回模型改一次仍不过则留草稿待人工 | `cargo test -p wikiatlas-agent` **34/34**（quality 9 · prompt 4） |
 | 2026-10-11 | **M3** | 收官：`agent::client`（自写 Responses API 客户端：SSE 拆帧 + 事件映射，实测 `output_item.added`/`function_call_arguments.delta/done`/`completed`）· `agent::runtime`（run 执行器：事件落 `run_events`、正文边流边落草稿、工具循环上限 6、会话日志 append-only）· `store::runs` · worker 认领 `run` · API `POST /api/runs` + `GET /api/runs/{id}/events`（SSE 从 `run_events` 轮询，api 与 worker 不共享内存）· 前端 Altas 真接上（发送 → SSE → 实时正文 → 刷节点） | `scripts/e2e-run.sh` **11/11**（真模型，草稿落库 + 浏览器看到流）；`cargo test --workspace` agent 21 · domain 27 · store 17 |
 | 2026-10-11 | **M3**（起步） | 动 AI 前通读 `behavior-notes.md`（§5 流式投影 / §3 护栏 / §7 模型行为）。落两块**纯逻辑 + 重点单测**的地基：`agent::stream`（从不完整 `function_call_arguments` JSON 里增量抽正文：转义断半不吐字、代理对等高代理、只认键位置、200ms 节流）· `agent::guard`（空写拒绝 / 截断守卫 `>200→<50` / 归档拒写 / JSON 错不猜 / 重复调用 >3 拦、`todo_write` 豁免） | `cargo test -p wikiatlas-agent` **16/16**（stream 9 · guard 7） |

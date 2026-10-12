@@ -71,6 +71,9 @@ async fn secret_or_env(pool: &PgPool, key: &str, env: &str) -> Result<Option<Str
     Ok(std::env::var(env).ok().filter(|v| !v.trim().is_empty()))
 }
 
+/// 模型流的**空闲**上限（不是总时长：长文可以写很久，只要一直在吐事件）。
+const IDLE_SECS: u64 = 90;
+
 pub struct ResponsesClient {
     http: reqwest::Client,
     cfg: LlmConfig,
@@ -129,13 +132,26 @@ impl ResponsesClient {
             }
             let mut resp = resp;
             let mut sse = SseReader::default();
-            while let Some(chunk) = match resp.chunk().await {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = tx.send(Err(crate::Error::Llm(format!("读模型流失败：{e}")))).await;
-                    return;
-                }
-            } {
+            // **空闲超时**：长文生成可能很久没事件，但不能无限挂着（`docs/backend.md §6` 的租约同理）。
+            // 90s 一点事件都没有 = 这条流已经死了，报错收尾，别让工单挂在 running。
+            loop {
+                let next = tokio::time::timeout(Duration::from_secs(IDLE_SECS), resp.chunk()).await;
+                let chunk = match next {
+                    Err(_) => {
+                        let _ = tx
+                            .send(Err(crate::Error::Llm(format!(
+                                "模型流空闲超时（{IDLE_SECS}s 没有任何事件）"
+                            ))))
+                            .await;
+                        return;
+                    }
+                    Ok(Err(e)) => {
+                        let _ = tx.send(Err(crate::Error::Llm(format!("读模型流失败：{e}")))).await;
+                        return;
+                    }
+                    Ok(Ok(None)) => return, // 流正常结束
+                    Ok(Ok(Some(c))) => c,
+                };
                 let text = String::from_utf8_lossy(&chunk);
                 for frame in sse.push(&text) {
                     if frame.data == "[DONE]" {
