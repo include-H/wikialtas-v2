@@ -8,8 +8,9 @@
 
 use crate::client::{LlmConfig, ResponsesClient};
 use crate::sse::StreamEvent;
-use crate::guard::{self, DupCallGuard, Verdict};
+use crate::guard::{self, DupCallGuard};
 use crate::stream::{ArgProjector, Throttle};
+use crate::tools::{call_read_skill, call_write, tool_defs};
 use crate::{Error, Result};
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -18,8 +19,6 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 use wikiatlas_store::{content, nodes, runs};
 
-/// M3 只装这一个写工具（`docs/tools.md §2.1`）。
-pub const WRITE_TOOL: &str = "write_content";
 /// 单次工单的模型轮次上限（防绕圈，`behavior-notes.md §3`）。
 const MAX_ITERS: u32 = 6;
 
@@ -29,36 +28,6 @@ pub struct RunSummary {
     pub text: String,
     pub draft_written: bool,
     pub iterations: u32,
-}
-
-/// 工具面（schema 直接给 Responses API 的 `tools`）。
-pub fn tool_defs() -> Value {
-    json!([{
-        "type": "function",
-        "name": WRITE_TOOL,
-        "description": "把整篇正文写入目标节点的草稿。改一句用 patch 类工具，别为一句重写整章；\
-                        内容为空或明显被截断会被拒绝。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "node_id": { "type": "string", "description": "目标节点 id" },
-                "content_md": { "type": "string", "description": "完整 markdown 正文" },
-                "summary": { "type": "string", "description": "这次写入的摘要（可选）" }
-            },
-            "required": ["node_id", "content_md"]
-        }
-    }])
-}
-
-/// 系统提示。**M3 先用最小版**：分段组装（`prompts.md §1` 的 section 表）随 M4 落，
-/// 现在只保身份 + 写工具的边界（`behavior-notes.md §0`：一个事实只有一个 owner）。
-pub fn system_prompt() -> String {
-    "你是 WikiAtlas 的写作助手，服务于一个中文 ACG 资料库。\n\
-     **写正文只有一个渠道：调用 write_content 工具。** 正文必须放在工具的 content_md 参数里，\n\
-     用 markdown（## 编号章节）。不要只把正文写在回复文字里——那样等于什么都没写。\n\
-     不要用空内容调用写工具；调用失败就按失败原因改，别重复同样的调用。\n\
-     写完可以再用一两句话说明你写了什么。"
-        .to_string()
 }
 
 /// 跑一条工单。返回摘要；失败时把错误写进 `runs.error_json` 再抛。
@@ -124,15 +93,23 @@ async fn run_loop(
     emit(pool, run_id, "response.created", &json!({ "model": cfg.model })).await?;
     emit(pool, run_id, "wikiatlas.notice", &json!({ "text": "开始生成", "node": node.title })).await?;
 
+    // 系统提示：骨架 + 技能目录（正文按需 read_skill，`prompts.md §4`）
+    let root = crate::prompt::skills_root();
+    let skills = crate::prompt::load(&root);
+    let sys = crate::prompt::writing_system_prompt(&skills, node.medium.unwrap_or(wikiatlas_domain::Medium::Other));
+    let medium = node.medium.unwrap_or(wikiatlas_domain::Medium::Other);
+
     // 目标节点的 id 必须**由宿主给出**：模型不该猜 id（猜错就写到别处/被护栏拦）。
     let user_text = format!("目标节点 id：{node_id}（《{}》）\n\n{goal}", node.title);
     let mut input = json!([
-        { "role": "system", "content": [{ "type": "input_text", "text": system_prompt() }] },
+        { "role": "system", "content": [{ "type": "input_text", "text": sys }] },
         { "role": "user", "content": [{ "type": "input_text", "text": user_text }] }
     ]);
 
     let mut text_all = String::new();
     let mut draft_written = false;
+    // 质量门纠错只给一次（`prompts.md §3.1`）
+    let mut corrected = false;
     let mut dup = DupCallGuard::new();
 
     for iter in 1..=MAX_ITERS {
@@ -158,7 +135,7 @@ async fn run_loop(
                 StreamEvent::FunctionCallAdded { item_id, name, call_id } => {
                     names.insert(item_id.clone(), name.clone());
                     call_ids.insert(item_id.clone(), call_id.clone());
-                    if name == WRITE_TOOL {
+                    if name == crate::tools::WRITE_TOOL {
                         projectors.insert(item_id.clone(), ArgProjector::new("content_md"));
                     }
                 }
@@ -211,12 +188,14 @@ async fn run_loop(
         for (item_id, arguments) in &args_done {
             let name = names.get(item_id).cloned().unwrap_or_default();
             let call_id = call_ids.get(item_id).cloned().unwrap_or_default();
-            let out = if name == WRITE_TOOL {
+            let out = if name == crate::tools::WRITE_TOOL {
                 call_write(pool, node_id, base_ver, arguments, &node.status, &old_body, run_id, &mut dup).await
+            } else if name == crate::tools::READ_SKILL_TOOL {
+                call_read_skill(arguments)
             } else {
                 json!({ "ok": false, "reason": format!("没有这个工具：{name}") })
             };
-            if name == WRITE_TOOL && out.get("ok").and_then(Value::as_bool) == Some(true) {
+            if name == crate::tools::WRITE_TOOL && out.get("ok").and_then(Value::as_bool) == Some(true) {
                 draft_written = true;
             }
             emit(pool, run_id, "wikiatlas.tool.result",
@@ -229,48 +208,41 @@ async fn run_loop(
                 "type": "function_call_output", "call_id": call_id, "output": out.to_string()
             }));
         }
+
+        // 写完就跑**代码质量门**（`prompts.md §3`）：不过 → 回给模型一次纠错机会。
+        if draft_written {
+            let body = content::read(pool, node_id)
+                .await
+                .ok()
+                .and_then(|d| d.draft.map(|x| x.body_md))
+                .unwrap_or_default();
+            let report = crate::quality::check(medium, &body, crate::quality::MIN_CHARS_FULL);
+            emit(pool, run_id, "wikiatlas.quality", &serde_json::to_value(&report).unwrap_or(Value::Null)).await?;
+            if report.passed() {
+                emit(pool, run_id, "wikiatlas.run.end",
+                     &json!({ "status": "completed", "draft_written": true, "iterations": iter,
+                              "chars": report.chars, "chapters": report.chapters, "quality": "passed" })).await?;
+                return Ok(RunSummary { status: "completed".into(), text: text_all, draft_written, iterations: iter });
+            }
+            let msgs = report.hard_messages();
+            if corrected {
+                // 纠错一次还不过 → 留草稿待人工（`prompts.md §3.1` 第 3 条）
+                emit(pool, run_id, "wikiatlas.notice",
+                     &json!({ "text": format!("质量门仍不过，草稿已留待人工：{}", msgs.join("；")) })).await?;
+                emit(pool, run_id, "wikiatlas.run.end",
+                     &json!({ "status": "completed", "draft_written": true, "iterations": iter,
+                              "quality": "failed", "issues": msgs })).await?;
+                return Ok(RunSummary { status: "completed".into(), text: text_all, draft_written, iterations: iter });
+            }
+            corrected = true;
+            push_item(&mut input, json!({
+                "role": "user",
+                "content": [{ "type": "input_text",
+                    "text": format!("宿主质量门没过，请用 write_content 重写整篇，逐条改掉：\n- {}", msgs.join("\n- ")) }]
+            }));
+        }
     }
     Err(Error::RunState(format!("超过 {MAX_ITERS} 轮还没收工")))
-}
-
-/// 工具调用：解析参数 → 护栏 → 落草稿。
-async fn call_write(
-    pool: &PgPool,
-    node_id: Uuid,
-    base_ver: i32,
-    arguments: &str,
-    status: &wikiatlas_domain::NodeStatus,
-    old_body: &str,
-    run_id: &str,
-    dup: &mut DupCallGuard,
-) -> Value {
-    #[derive(serde::Deserialize)]
-    struct Args {
-        #[serde(default)]
-        node_id: String,
-        content_md: String,
-        #[serde(default)]
-        summary: String,
-    }
-    if let Verdict::Reject(reason) = dup.check(WRITE_TOOL, arguments) {
-        return json!({ "ok": false, "reason": reason });
-    }
-    let args: Args = match guard::parse_args(arguments) {
-        Ok(a) => a,
-        Err(Verdict::Reject(r)) => return json!({ "ok": false, "reason": r }),
-        Err(Verdict::Allow) => unreachable!(),
-    };
-    if !args.node_id.is_empty() && args.node_id != node_id.to_string() {
-        return json!({ "ok": false, "reason": "只允许写当前工单的目标节点" });
-    }
-    if let Verdict::Reject(reason) = guard::check_write(*status, old_body, &args.content_md) {
-        return json!({ "ok": false, "reason": reason });
-    }
-    let by = format!("llm:{run_id}");
-    match content::put_draft(pool, node_id, &args.content_md, base_ver, &by).await {
-        Ok(d) => json!({ "ok": true, "wrote": true, "base_ver": d.base_ver, "summary": args.summary }),
-        Err(e) => json!({ "ok": false, "reason": format!("落草稿失败：{e}") }),
-    }
 }
 
 fn push_item(input: &mut Value, item: Value) {

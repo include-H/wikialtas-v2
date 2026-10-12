@@ -7,8 +7,11 @@
 
 pub mod client;
 pub mod guard;
+pub mod prompt;
+pub mod quality;
 pub mod runtime;
 pub mod sse;
+pub mod tools;
 pub mod stream;
 
 use thiserror::Error;
