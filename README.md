@@ -3,6 +3,8 @@
 **Atlas = 你的媒体库书架 + 一位有全权工具、但没有手的 LLM 馆员。**
 它是 GameAtlas / Emby / Komga 的**文档层**：库里一个条目对应一篇 wiki 文档；Atlas 是文档真源，定稿反哺回库。
 
+> **第一次接触？先读 [`HANDOVER.md`](HANDOVER.md)**（一句话介绍 / 技术栈 / 数据流 / 当前进度 / 卡点）。
+>
 > **续工入口：新对话先加载 [`docs/TRACKING.md`](docs/TRACKING.md)**——它记录当前状态、里程碑看板与下一步，并按 `docs/README.md`（总纲 / **决策冻结表** / 路线图）继续开发，不再需要逐条拍板。
 
 v1 已整棵归档到 [`archive/v1/`](archive/v1/)（代码、脚本、技能、旧文档）。v1 只作参考，不再改动；**它的真实数据库 `archive/v1/backend/data/wikiatlas.db` 留在本机、未入库（D2：不迁 v1 数据）**；它最值钱的"行为知识"已摘进 [`docs/behavior-notes.md`](docs/behavior-notes.md)。
