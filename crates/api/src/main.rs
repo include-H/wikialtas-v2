@@ -44,8 +44,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/tree", get(routes::tree))
         .route("/api/overview", get(routes::overview))
         .route("/api/nodes", post(routes::create_node))
-        .route("/api/nodes/{id}", get(routes::node_detail))
+        .route(
+            "/api/nodes/{id}",
+            get(routes::node_detail).patch(routes::update_node),
+        )
+        .route("/api/archived", get(routes::archived_nodes))
         .route("/api/nodes/{id}/archive", post(routes::archive_node))
+        .route("/api/nodes/{id}/unarchive", post(routes::unarchive_node))
         .route(
             "/api/nodes/{id}/draft",
             put(routes::put_draft).delete(routes::discard_draft),
@@ -121,6 +126,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sessions/{id}", get(routes::session_detail))
         .route("/api/skills", get(routes::list_skills))
         .route("/api/runs", post(routes::create_run))
+        .route("/api/runs/{id}", get(routes::get_run))
+        .route("/api/runs/{id}/cancel", post(routes::cancel_run))
         .route("/api/runs/{id}/events", get(routes::run_events))
         // 仅开发：放行本地前端（Vite）。上线前收紧成白名单。
         .layer(CorsLayer::permissive())

@@ -19,7 +19,7 @@
 ## 1. 恢复协议（新对话 / 新 agent 照着做，别跳步）
 
 1. **读本文件**（尤其 §2 当前快照 + §3 看板 + §5 风险）。
-2. **读 `docs/README.md`**：拿决策冻结表（D1–D74）与里程碑定义。
+2. **读 `docs/README.md`**：拿决策冻结表（D1–D76）与里程碑定义。
 3. **按你负责的层读对应文档**：
    - 后端 / agent → `behavior-notes.md`（**写 AI 前必读**）· `backend.md` · `database.md` · `api.md` · `tools.md` · `prompts.md`
    - 前端 → `frontend.md` · `frontend-migration.md` · `api.md §4`
@@ -39,14 +39,14 @@
 
 | 项 | 状态 |
 |---|---|
-| 文档冻结 | ✅ 全部 16 篇已冻结（决策 D1–D74 无"待定"） |
+| 文档冻结 | ✅ 全部 16 篇已冻结（决策 D1–D76 无"待定"） |
 | 代码基线 | ✅ M0–M9：树/内容 · 三源扫描与建档 · 通用 Atlas harness · 三段式写作 · 关系/综合 · Review/体检 · 反哺/重挂 · 检索/存资料 · MCP/设置/用量/导出导入 |
 | 产出基准 | **规则** = 项目内 `skills/`（14 技能 + `samples/` 18 篇）；**质量目标** = `/root/Game_Wiki` 真产出（D3） |
 | 当前里程碑 | **M0–M9 全部 ✅**；路线图内无未实现里程碑 |
-| 下一步 | **发布前验收**：① 经你明确批准后，用真实 GameAtlas/Komga 写回一条测试文档（**唯一需要你点头的外部写**）；② 维持 `/root/Game_Wiki` 产出档评测；③ 需要时再接可选「AI 对一遍」与 pgvector。免费回归已于 2026-10-29 全绿 |
+| 下一步 | **发布前验收**：① 经你明确批准后，用真实 GameAtlas/Komga 写回一条测试文档（**唯一需要你点头的外部写**）；② 维持 `/root/Game_Wiki` 产出档评测；③ 需要时再接可选「AI 对一遍」与 pgvector。P1 管理闭环（取消运行 / 节点编辑 / 归档恢复）已落；免费回归全绿。P2 可选：研究/骨架便宜档（R9/D20）、搜索预算调参（R16）、结构写审批（ask） |
 | 阻塞项 | 无 |
 | 需要产品方做的事 | **无**（已委托；一切按文档与本文裁决） |
-| 仓库状态 | V2 实现已提交到本地（`feat(v2): M4.5–M9 …`），**尚未推送**；工作树仅剩两张本地截图 `1.png` / `2.png` 未跟踪 |
+| 仓库状态 | V2 实现已提交到本地（`feat(v2): M4.5–M9 …`），**尚未推送**；P1（D75/D76）改动**未提交**；另有 `1.png` / `2.png` 两张本地截图未跟踪 |
 
 ---
 
@@ -91,7 +91,7 @@
 
 | 项 | 状态 |
 |---|---|
-| 决策冻结表（D1–D74） | ✅ 冻结，`docs/README.md §3` |
+| 决策冻结表（D1–D76） | ✅ 冻结，`docs/README.md §3` |
 | 各文档"待定"章节 | ✅ 全部收敛为"已拍板"（grep 无残留） |
 | 文档清单（16 篇） | ✅ README · features · v2-from-v1 · behavior-notes · ai · tools · prompts · skills · eval-cases · library-sync · backend · database · api · frontend · frontend-migration · testing |
 | 新决定往哪写 | `docs/README.md §3` 追加一行（含理由），再回填本文 §3/§5 |
@@ -129,6 +129,7 @@
 
 | 日期 | 里程碑 | 做了什么 | 证据 |
 |---|---|---|---|
+| 2026-10-29 | **P1 管理闭环（D75 D76）** | ① **取消运行**：`runs.cancel_requested`（迁移 0003）+ `GET /api/runs/{id}` + `POST /cancel`；排队中直接 `cancelled` 并标 job done，运行中 worker 在模型轮次 / 工具 / 写作阶段边界收尾并保留草稿；前端右栏加「停止」。② **节点管理**：`PATCH /api/nodes/{id}` 改名 / 别名 / 标签 / 移动父节点；`POST /unarchive` 恢复整棵子树（有定稿回 ready，否则 draft）；左栏加「已归档」入口，文档菜单归档态显示「取消归档」 | 新增 `scripts/e2e-cancel.sh` **13/13**（真 PG/API/worker + 慢速 mock：running → cancel → cancelled + job done；真界面右栏「停止」）· `scripts/e2e-node-admin.sh` **16/16**（真界面：改名/别名/标签/移动 → 归档 → 已归档找回 → 恢复）· store 单测 `run_cancel_flow` 2 · `node_admin_flow` 2 · `archive_flow` 2 |
 | 2026-10-29 | **发布前回归 + 修订闭环（D74）** | 逐项复跑 M0–M9 验收并修真回归：① `e2e-audit.sh` 按侧栏序号点「体检」→ 新增「全文检索」后点错页 → 改为按文案点击（**9/9**）；② `e2e-write-mock.sh` 的 mock 仍用旧判据（system 含「当前运行约束」）把根 Atlas 写请求当成工具面验收 → 改为测试口令 + 新增根循环 `write_wiki` 分支（**27/27**）；③ `md-check.sh` 旧路径/过期断言 → 规范化等价比较（**18/18**，R7 关闭）；④ 补 **D74**：接受 = 定稿、拒绝 = 丢弃草稿，新增 `DELETE /api/nodes/{id}/draft`、文档菜单「丢弃草稿」、store 单测 | `e2e-sync 17/17` · `e2e-harness-tools 15/15` · `e2e-search 11/11` · `e2e-relations 12/12` · `e2e-audit 9/9` · `e2e-ops 17/17` · `e2e-ui 35/35`（含丢弃草稿）· `e2e-write-mock 27/27` · `md-check 18/18` · `editor-check 22/22` · `layout-check 39/39`；`cargo test --workspace` **171** 通过，前端构建通过 |
 | 2026-10-17 | **Harness 工具面补齐 + 聚合搜索** | 按 DSH 风格重写 Atlas 提示（身份/约束/工作方式/写库纪律/交付）；通用 Harness 真正补齐节点、正文局部编辑、批量章节、关系、媒体链、资料、归档、todo、会话回忆等工具；`read`/`oneShot` 从 run context 进入 schema 与 `policy` 双层裁剪。联网搜索统一为 `search_web`：Exa + Brave + DeepSeek 并行、URL 去重、RRF 融合、失败降级；DeepSeek Fetch 优先、本地抽取兜底。默认一次融合 20 条（max 50），研究预算 24/16/48 可配 | `harness_tools` 单测/DB 工具真跑；`websearch` 三家 fake HTTP + RRF 测试；`scripts/e2e-harness-tools.sh` **7/7**（真 PG/API/worker + mock 模型：edit/upsert/todo 真执行，read 模式误调 edit 被拒）；`cargo test -p wikiatlas-agent` **91/91** |
 | 2026-10-17 | **M9 ✅ 对外与运维** | 新增 `crates/mcp`：stdio JSON-RPC MCP server，只暴露 `search_works` / `read_node` / `get_tree`，没有写工具；新增设置页与非密钥 `app_settings` 配置、`PUT /api/secrets`（只回显“已配置”）；用量从 `response.completed.usage` 按模型聚合，配置单价后算成本；项目 JSON 导出/空库导入（不含密钥/runs/媒体缓存）；验证 `pg_dump/pg_restore`；补可选单密码访问控制（未设置时本地开放，设置后 HttpOnly Cookie 校验） | `scripts/e2e-ops.sh` **17/17**（MCP 真子进程检索、导出导入、恢复库正文、设置页/用量、401/登录）；`cargo test --workspace` 全绿，`npm run build` 通过 |

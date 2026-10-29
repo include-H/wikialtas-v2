@@ -20,6 +20,7 @@ import {
   ApartmentOutlined,
   CopyOutlined,
   DeleteOutlined,
+  EditOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
   LinkOutlined,
@@ -92,6 +93,13 @@ function DocEditor({ nodeId }: { nodeId: string }) {
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [preview, setPreview] = useState<{ ver: number; body_md: string } | null>(null)
   const [infoOpen, setInfoOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editAliases, setEditAliases] = useState('')
+  const [editTags, setEditTags] = useState('')
+  const [editParent, setEditParent] = useState<string>('')
+  // 只有打开编辑框时才拉整棵树（选父节点）
+  const allNodes = useQuery({ queryKey: ['tree'], queryFn: api.tree, enabled: editOpen })
   const timer = useRef<number | null>(null)
 
   // 实时写入（`design.md §6.3`）：Atlas 正在写这篇时，正文区切只读实时视图
@@ -208,15 +216,41 @@ function DocEditor({ nodeId }: { nodeId: string }) {
     onError: (e) => message.error(`重新推送失败：${e.message}`),
   })
 
+  const updateNode = useMutation({
+    mutationFn: (patch: import('../api').UpdateNodeReq) => api.updateNode(nodeId, patch),
+    onSuccess: () => {
+      setEditOpen(false)
+      qc.invalidateQueries({ queryKey: ['tree'] })
+      qc.invalidateQueries({ queryKey: ['archived'] })
+      qc.invalidateQueries({ queryKey: ['node', nodeId] })
+      qc.invalidateQueries({ queryKey: ['overview'] })
+      message.success('节点信息已保存')
+    },
+    onError: (e) => message.error(`保存失败：${e.message}`),
+  })
+
+  const unarchive = useMutation({
+    mutationFn: () => api.unarchiveNode(nodeId),
+    onSuccess: (n) => {
+      qc.invalidateQueries({ queryKey: ['tree'] })
+      qc.invalidateQueries({ queryKey: ['archived'] })
+      qc.invalidateQueries({ queryKey: ['node', nodeId] })
+      qc.invalidateQueries({ queryKey: ['overview'] })
+      message.success(`已取消归档，恢复为${n.status === 'ready' ? '定稿' : '草稿'}`)
+    },
+    onError: (e) => message.error(`取消归档失败：${e.message}`),
+  })
+
   const archive = useMutation({
     mutationFn: () => api.archiveNode(nodeId),
     onSuccess: () => {
       const parentId = detail.data?.node.parent_id ?? null
       select(parentId)
       qc.invalidateQueries({ queryKey: ['tree'] })
+      qc.invalidateQueries({ queryKey: ['archived'] })
       qc.invalidateQueries({ queryKey: ['overview'] })
       qc.invalidateQueries({ queryKey: ['node', nodeId] })
-      message.success('已从知识库删除；正文与版本记录仍保留')
+      message.success('已从知识库删除；可在左栏「已归档」里恢复')
     },
     onError: (e) => message.error(`删除失败：${e.message}`),
   })
@@ -276,9 +310,56 @@ function DocEditor({ nodeId }: { nodeId: string }) {
   const canResync =
     activeLink && (activeLink.source === 'gameatlas' || activeLink.source === 'komga')
 
+  // 父节点候选：排除自己与整棵子树（后端也有环校验，这里只是别让人选到必错的项）
+  const parentOptions = (() => {
+    const nodes = allNodes.data ?? []
+    const banned = new Set([node.id])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const n of nodes) {
+        if (n.parent_id && banned.has(n.parent_id) && !banned.has(n.id)) {
+          banned.add(n.id)
+          grew = true
+        }
+      }
+    }
+    return [
+      { value: '__root__', label: '（根目录）' },
+      ...nodes
+        .filter((n) => !banned.has(n.id))
+        .map((n) => ({ value: n.id, label: `${n.title}（${KIND_LABEL[n.kind]}）` })),
+    ]
+  })()
+
+  const saveNode = () => {
+    const title = editTitle.trim()
+    if (!title) {
+      message.warning('标题不能为空')
+      return
+    }
+    const split = (s: string) =>
+      s
+        .split(/[\n,，]/)
+        .map((x) => x.trim())
+        .filter(Boolean)
+    const patch: import('../api').UpdateNodeReq = {
+      title,
+      aliases: split(editAliases),
+      tags: split(editTags),
+    }
+    const before = node.parent_id ?? '__root__'
+    if (editParent !== before) {
+      if (editParent === '__root__') patch.move_to_root = true
+      else patch.parent_id = editParent
+    }
+    updateNode.mutate(patch)
+  }
+
   const menuItems = [
     { key: 'relations', icon: <ApartmentOutlined />, label: '关系与综合页' },
     { key: 'versions', icon: <HistoryOutlined />, label: '版本历史' },
+    { key: 'edit', icon: <EditOutlined />, label: '编辑节点' },
     { key: 'info', icon: <InfoCircleOutlined />, label: '节点信息' },
     { key: 'copy', icon: <CopyOutlined />, label: '复制 Markdown' },
     ...(detail.data?.draft && !readOnly
@@ -287,12 +368,16 @@ function DocEditor({ nodeId }: { nodeId: string }) {
         ]
       : []),
     { type: 'divider' as const },
-    {
-      key: 'archive',
-      icon: <DeleteOutlined />,
-      label: '删除文章',
-      danger: true,
-    },
+    ...(node.status === 'archived'
+      ? [{ key: 'unarchive', icon: <UndoOutlined />, label: '取消归档' }]
+      : [
+          {
+            key: 'archive',
+            icon: <DeleteOutlined />,
+            label: '删除文章',
+            danger: true,
+          },
+        ]),
   ]
 
   const onMenu = ({ key }: { key: string }) => {
@@ -301,8 +386,22 @@ function DocEditor({ nodeId }: { nodeId: string }) {
       setPreview(null)
       setVersionsOpen(true)
       qc.invalidateQueries({ queryKey: ['versions', nodeId] })
+    } else if (key === 'edit') {
+      setEditTitle(node.title)
+      setEditAliases(node.aliases.join('\n'))
+      setEditTags(node.tags.join('\n'))
+      setEditParent(node.parent_id ?? '__root__')
+      setEditOpen(true)
     } else if (key === 'info') setInfoOpen(true)
-    else if (key === 'copy') {
+    else if (key === 'unarchive') {
+      modal.confirm({
+        title: `取消归档《${node.title}》？`,
+        content: '整棵子树会回到知识库；有定稿的恢复为定稿，没有的回到草稿。',
+        okText: '恢复',
+        cancelText: '取消',
+        onOk: () => unarchive.mutateAsync().catch(() => undefined),
+      })
+    } else if (key === 'copy') {
       void navigator.clipboard?.writeText(fullBody).then(
         () => message.success('已复制'),
         () => message.error('复制失败'),
@@ -525,6 +624,46 @@ function DocEditor({ nodeId }: { nodeId: string }) {
         footer={null}
       >
         <NodeInfo node={node} baseVer={baseVer} />
+      </Modal>
+
+      <Modal
+        title="编辑节点"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={saveNode}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={updateNode.isPending}
+        width={520}
+      >
+        <div className="node-edit">
+          <label>标题</label>
+          <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <label>别名（每行一个）</label>
+          <Input.TextArea
+            value={editAliases}
+            onChange={(e) => setEditAliases(e.target.value)}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+          />
+          <label>标签（每行一个）</label>
+          <Input.TextArea
+            value={editTags}
+            onChange={(e) => setEditTags(e.target.value)}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+          />
+          <label>父节点</label>
+          <Select
+            value={editParent}
+            onChange={setEditParent}
+            options={parentOptions}
+            showSearch
+            optionFilterProp="label"
+            loading={allNodes.isLoading}
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            移动会追加到新父节点的末尾；不能移进自己的子树。
+          </Typography.Text>
+        </div>
       </Modal>
 
       <RelinkModal

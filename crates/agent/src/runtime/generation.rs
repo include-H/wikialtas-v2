@@ -54,6 +54,7 @@ pub async fn run(
     targets.extend(outline.chapters.iter().map(|c| Target::Chapter(c.no)));
 
     for t in &targets {
+        crate::runtime::common::ensure_not_cancelled(pool, run_id).await?;
         let ok = write_target(pool, client, run_id, node_id, medium, node_title, outline, ledger, *t, &mut body, base_ver, None, loaded_skills).await?;
         wrote |= ok;
     }
@@ -65,6 +66,7 @@ pub async fn run(
         let fix = targets_for(&q, &c, outline, &body);
         let note = correction_note(&q, &c);
         for t in &fix {
+            crate::runtime::common::ensure_not_cancelled(pool, run_id).await?;
             write_target(pool, client, run_id, node_id, medium, node_title, outline, ledger, *t, &mut body, base_ver, Some(note.clone()), loaded_skills).await?;
         }
         q = quality::check(medium, &body, quality::MIN_CHARS_FULL);

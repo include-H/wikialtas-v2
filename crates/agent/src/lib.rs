@@ -32,6 +32,9 @@ pub enum Error {
     Llm(String),
     #[error("工单状态不对：{0}")]
     RunState(String),
+    /// 用户请求取消：正常收尾成 `cancelled`，不是失败。
+    #[error("已取消")]
+    Cancelled,
     #[error("存储错误：{0}")]
     Store(#[from] wikiatlas_store::Error),
 }

@@ -96,6 +96,24 @@ pub async fn execute(pool: &PgPool, cfg: &LlmConfig, run_id: &str) -> Result<Run
         .and_then(|s| Uuid::parse_str(s).ok())
         .ok_or_else(|| Error::RunState(format!("工单 {run_id} 没带 node_id")))?;
 
+    // 排队期间就被取消：不要再起模型调用，直接收尾。
+    if run.cancel_requested || run.status == "cancelled" {
+        common::emit(
+            pool,
+            run_id,
+            "wikiatlas.run.end",
+            &json!({ "status": "cancelled", "draft_written": false }),
+        )
+        .await?;
+        runs::set_status(pool, run_id, "cancelled", None, None).await?;
+        return Ok(RunSummary {
+            status: "cancelled".into(),
+            text: "已取消".into(),
+            draft_written: false,
+            iterations: 0,
+        });
+    }
+
     runs::set_status(pool, run_id, "running", None, None).await?;
     let client = ResponsesClient::new(cfg.clone())?;
     let context = RunContext::from_checkpoint(&run.checkpoint);
@@ -124,6 +142,23 @@ pub async fn execute(pool: &PgPool, cfg: &LlmConfig, run_id: &str) -> Result<Run
                 iterations: o.iterations,
             })
         }
+        Err(Error::Cancelled) => {
+            common::emit(
+                pool,
+                run_id,
+                "wikiatlas.run.end",
+                &json!({ "status": "cancelled", "draft_written": false }),
+            )
+            .await?;
+            // 取消是正常收尾，不是失败：草稿保留，用户可继续看 / 定稿。
+            runs::set_status(pool, run_id, "cancelled", None, None).await?;
+            Ok(RunSummary {
+                status: "cancelled".into(),
+                text: "已取消".into(),
+                draft_written: false,
+                iterations: 0,
+            })
+        }
         Err(e) => {
             runs::set_status(pool, run_id, "failed", None, Some(&json!({ "message": e.to_string() })))
                 .await?;
@@ -146,6 +181,7 @@ pub(crate) async fn pipeline(
     }
     let medium = node.medium.unwrap_or(Medium::Other);
 
+    common::ensure_not_cancelled(pool, run_id).await?;
     common::emit(
         pool,
         run_id,
@@ -180,6 +216,7 @@ pub(crate) async fn pipeline(
     let gate = ledger.gate(medium);
 
     // ---- 骨架段 ----
+    common::ensure_not_cancelled(pool, run_id).await?;
     phase(pool, run_id, Phase::Outline).await?;
     let outline = outline::run(
         pool,
@@ -196,6 +233,7 @@ pub(crate) async fn pipeline(
     }
 
     // ---- 生成段 ----
+    common::ensure_not_cancelled(pool, run_id).await?;
     phase(pool, run_id, Phase::Generation).await?;
     let gen = generation::run(
         pool,

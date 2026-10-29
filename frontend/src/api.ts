@@ -337,6 +337,28 @@ export interface CreateNodeReq {
   title: string
 }
 
+/** PATCH /api/nodes/{id}：只传要改的字段；`move_to_root` 处理“移到根”。 */
+export interface UpdateNodeReq {
+  title?: string
+  aliases?: string[]
+  tags?: string[]
+  parent_id?: string
+  move_to_root?: boolean
+}
+
+export interface RunInfo {
+  id: string
+  status: string
+  cancel_requested: boolean
+  goal: string
+  model: string
+  checkpoint: Record<string, unknown>
+  result: unknown
+  error: unknown
+  started_at: string
+  completed_at: string | null
+}
+
 /** 后端错误体（`crates/api/src/error.rs` 里那几个形状）。 */
 export interface ApiErrorBody {
   error: 'not_found' | 'duplicated' | 'version_conflict' | 'validation' | 'internal'
@@ -377,6 +399,8 @@ export const api = {
 
   tree: () => fetch('/api/tree').then(toJson<Node[]>),
 
+  archived: () => fetch('/api/archived').then(toJson<Node[]>),
+
   overview: () => fetch('/api/overview').then(toJson<HomeStats>),
 
   nodeLinks: (id: string) => fetch(`/api/nodes/${id}/links`).then(toJson<NodeLink[]>),
@@ -385,6 +409,23 @@ export const api = {
 
   archiveNode: (id: string) =>
     fetch(`/api/nodes/${id}/archive`, { method: 'POST' }).then(toJson<Node>),
+
+  unarchiveNode: (id: string) =>
+    fetch(`/api/nodes/${id}/unarchive`, { method: 'POST' }).then(toJson<Node>),
+
+  updateNode: (id: string, req: UpdateNodeReq) =>
+    fetch(`/api/nodes/${id}`, {
+      method: 'PATCH',
+      headers: jsonHeaders,
+      body: JSON.stringify(req),
+    }).then(toJson<Node>),
+
+  run: (id: string) => fetch(`/api/runs/${encodeURIComponent(id)}`).then(toJson<RunInfo>),
+
+  cancelRun: (id: string) =>
+    fetch(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }).then(
+      toJson<{ id: string; status: string; cancel_requested: boolean }>,
+    ),
 
   createNode: (req: CreateNodeReq) =>
     fetch('/api/nodes', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(req) }).then(

@@ -11,6 +11,7 @@ import {
   SaveOutlined,
   SearchOutlined,
   SendOutlined,
+  StopOutlined,
   ThunderboltOutlined,
   ToolOutlined,
 } from '@ant-design/icons'
@@ -48,6 +49,8 @@ export default function AiPanel({ onClose }: { onClose?: () => void } = {}) {
 
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
+  const [runId, setRunId] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   const [live, setLive] = useState('')
   const [say, setSay] = useState('')
   const [status, setStatus] = useState<string>('')
@@ -170,11 +173,26 @@ export default function AiPanel({ onClose }: { onClose?: () => void } = {}) {
     setThinkingOpen(true)
   }
 
+  /** 取消当前运行：只请求，worker 在工具边界收尾（不杀进程）。 */
+  const cancel = async () => {
+    if (!runId || cancelling) return
+    setCancelling(true)
+    setStatus('正在取消…')
+    try {
+      await api.cancelRun(runId)
+    } catch {
+      message.error('取消失败，请再试一次')
+      setCancelling(false)
+    }
+  }
+
   const send = async (text?: string) => {
     const content = (text ?? prompt).trim()
     if (!selectedId || !content || busy) return
     targetRef.current = selectedId
     setBusy(true)
+    setRunId(null)
+    setCancelling(false)
     reset()
     setStatus('排队中…')
     setSentPrompt(content)
@@ -189,6 +207,7 @@ export default function AiPanel({ onClose }: { onClose?: () => void } = {}) {
           skills: loadedSkill ? [loadedSkill] : [],
         },
       })
+      setRunId(runId)
       if (returnedSession) {
         setSessionId(returnedSession)
         localStorage.setItem(`wikiatlas.session.${selectedId}`, returnedSession)
@@ -239,10 +258,14 @@ export default function AiPanel({ onClose }: { onClose?: () => void } = {}) {
         setBusy(false)
       })
       on('wikiatlas.notice', (d) => setSay((s) => (s ? s + '\n' : '') + (d.payload?.text ?? '')))
-      on('wikiatlas.run.end', () => {
+      on('wikiatlas.cancel.requested', () => setStatus('正在取消…'))
+      on('wikiatlas.run.end', (d) => {
+        const ended = d.payload?.status === 'cancelled' ? '已取消' : '完成'
         setReasoningUnavailable(reasoningRef.current.length === 0)
-        setStatus('完成')
+        setStatus(ended)
         setBusy(false)
+        setRunId(null)
+        setCancelling(false)
         setSentPrompt('')
         setAnswer(null)
         setSay('')
@@ -259,6 +282,8 @@ export default function AiPanel({ onClose }: { onClose?: () => void } = {}) {
       es.onerror = () => {
         if (es.readyState === EventSource.CLOSED) {
           setBusy(false)
+          setRunId(null)
+          setCancelling(false)
           setLiveWrite(null)
           qc.invalidateQueries({ queryKey: ['node', selectedId] })
           qc.invalidateQueries({ queryKey: ['tree'] })
@@ -621,6 +646,18 @@ export default function AiPanel({ onClose }: { onClose?: () => void } = {}) {
             <span className="ai-foot-hint">
               {busy ? 'Atlas 正在处理…' : 'Enter 发送 · Shift+Enter 换行'}
             </span>
+            {busy && (
+              <Button
+                size="small"
+                danger
+                icon={<StopOutlined />}
+                loading={cancelling}
+                disabled={!runId}
+                onClick={() => void cancel()}
+              >
+                停止
+              </Button>
+            )}
             <Button
               className="ai-send"
               type="primary"

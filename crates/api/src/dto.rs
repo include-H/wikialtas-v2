@@ -36,6 +36,42 @@ impl CreateNodeReq {
     }
 }
 
+/// PATCH /api/nodes/{id}：只改人会在 UI 里改的元数据。
+/// `move_to_root=true` 时移到根（因为 JSON 里 `parent_id: null` 与“没传”不可区分）。
+#[derive(Debug, Deserialize)]
+pub struct UpdateNodeReq {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub aliases: Option<Vec<String>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+    #[serde(default)]
+    pub move_to_root: bool,
+}
+
+impl UpdateNodeReq {
+    pub fn into_patch(self) -> wikiatlas_store::nodes::NodePatch {
+        let parent_id = if self.move_to_root {
+            Some(None)
+        } else {
+            self.parent_id.map(Some)
+        };
+        wikiatlas_store::nodes::NodePatch {
+            parent_id,
+            kind: None,
+            medium: None,
+            title: self.title,
+            aliases: self.aliases,
+            tags: self.tags,
+            status: None,
+            visibility: None,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DraftReq {
     pub body_md: String,

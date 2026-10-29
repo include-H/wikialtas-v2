@@ -37,6 +37,14 @@ pub async fn emit(pool: &PgPool, run_id: &str, ty: &str, payload: &Value) -> Res
     Ok(())
 }
 
+/// 工具 / 阶段边界检查取消标志（`backend.md §1`：不依赖进程内 token）。
+pub async fn ensure_not_cancelled(pool: &PgPool, run_id: &str) -> Result<()> {
+    if runs::is_cancel_requested(pool, run_id).await? {
+        return Err(crate::Error::Cancelled);
+    }
+    Ok(())
+}
+
 /// 往下一轮的 input 追加一项（Responses 的形状）。
 pub fn push_item(input: &mut Value, item: Value) {
     if let Some(arr) = input.as_array_mut() {

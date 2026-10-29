@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::dto::{
     CommitReq, CommitResp, CreateNodeReq, CreateRelationReq, CreateSessionReq, CreateSuggestionReq,
     DecisionReq, DraftReq, FindingQuery, RelationQuery, RelinkReq, ReviewQuery, SaveAnswerReq,
-    SearchQuery, SessionMessageQuery, SessionQuery, SynthesisReq, VersionResp,
+    SearchQuery, SessionMessageQuery, SessionQuery, SynthesisReq, UpdateNodeReq, VersionResp,
 };
 use crate::error::ApiError;
 use wikiatlas_domain as domain;
@@ -46,6 +46,32 @@ pub async fn archive_node(
     Path(id): Path<Uuid>,
 ) -> Result<Json<domain::Node>, ApiError> {
     Ok(Json(wikiatlas_store::nodes::archive(&pool, id).await?))
+}
+
+/// GET /api/archived：已归档节点（树默认不含；给「已归档」入口）。
+pub async fn archived_nodes(
+    State(pool): State<PgPool>,
+) -> Result<Json<Vec<domain::Node>>, ApiError> {
+    Ok(Json(wikiatlas_store::nodes::archived(&pool, 200).await?))
+}
+
+/// 取消归档（恢复整棵子树）。
+pub async fn unarchive_node(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<domain::Node>, ApiError> {
+    Ok(Json(wikiatlas_store::nodes::unarchive(&pool, id).await?))
+}
+
+/// 改节点元数据 / 移动父节点（树排序由 store 分配）。
+pub async fn update_node(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateNodeReq>,
+) -> Result<Json<domain::Node>, ApiError> {
+    Ok(Json(
+        wikiatlas_store::nodes::update(&pool, id, &req.into_patch()).await?,
+    ))
 }
 
 pub async fn put_draft(
@@ -714,4 +740,47 @@ pub async fn run_events(
         }
     };
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+/// GET /api/runs/{id}：工单状态（前端重连 / 运行列表）。
+pub async fn get_run(
+    State(pool): State<PgPool>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let r = wikiatlas_store::runs::get(&pool, &id).await?;
+    Ok(Json(serde_json::json!({
+        "id": r.id,
+        "status": r.status,
+        "cancel_requested": r.cancel_requested,
+        "goal": r.goal,
+        "model": r.model,
+        "checkpoint": r.checkpoint,
+        "result": r.result_json,
+        "error": r.error_json,
+        "started_at": r.started_at,
+        "completed_at": r.completed_at,
+    })))
+}
+
+/// POST /api/runs/{id}/cancel：只置标志，worker 在工具边界收尾成 `cancelled`。
+pub async fn cancel_run(
+    State(pool): State<PgPool>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let changed = wikiatlas_store::runs::request_cancel(&pool, &id).await?;
+    if changed {
+        wikiatlas_store::runs::append_event(
+            &pool,
+            &id,
+            "wikiatlas.cancel.requested",
+            &serde_json::json!({ "text": "已请求取消，正在收尾…" }),
+        )
+        .await?;
+    }
+    let r = wikiatlas_store::runs::get(&pool, &id).await?;
+    Ok(Json(serde_json::json!({
+        "id": r.id,
+        "status": r.status,
+        "cancel_requested": r.cancel_requested,
+    })))
 }

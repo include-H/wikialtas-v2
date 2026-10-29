@@ -11,7 +11,7 @@ use crate::client::ResponsesClient;
 use crate::guard::{DupCallGuard, Verdict};
 use crate::phases::{self, ATLAS_MAX_ITERS};
 use crate::read_tools::{self, ANSWER_TOOL, FINISH_TOOL};
-use crate::runtime::common::{emit, push_call, run_turn};
+use crate::runtime::common::{self, emit, push_call, run_turn};
 use crate::runtime::RunContext;
 use crate::tools::{self, WRITE_WIKI_TOOL};
 use crate::{policy, prompt, Result};
@@ -105,6 +105,7 @@ pub async fn run(
 
     for iter in 1..=ATLAS_MAX_ITERS {
         iterations = iter;
+        common::ensure_not_cancelled(pool, run_id).await?;
         let turn = run_turn(
             pool,
             run_id,
@@ -124,6 +125,7 @@ pub async fn run(
 
         let mut done = false;
         for call in &turn.calls {
+            common::ensure_not_cancelled(pool, run_id).await?;
             let out = if let Verdict::Reject(r) = dup.check(&call.name, &call.arguments) {
                 json!({ "ok": false, "reason": r })
             } else if let policy::Decision::Deny(r) =

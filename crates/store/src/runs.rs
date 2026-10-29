@@ -33,6 +33,8 @@ pub struct Run {
     pub checkpoint: serde_json::Value,
     pub result_json: Option<serde_json::Value>,
     pub error_json: Option<serde_json::Value>,
+    /// 取消已请求（worker 在工具边界看到后收尾）。
+    pub cancel_requested: bool,
     pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
 }
@@ -56,6 +58,7 @@ struct RunDb {
     checkpoint: serde_json::Value,
     result_json: Option<serde_json::Value>,
     error_json: Option<serde_json::Value>,
+    cancel_requested: bool,
     started_at: DateTime<Utc>,
     completed_at: Option<DateTime<Utc>>,
 }
@@ -72,6 +75,7 @@ impl From<RunDb> for Run {
             checkpoint: r.checkpoint,
             result_json: r.result_json,
             error_json: r.error_json,
+            cancel_requested: r.cancel_requested,
             started_at: r.started_at,
             completed_at: r.completed_at,
         }
@@ -97,7 +101,7 @@ pub async fn create(pool: &PgPool, new: &NewRun) -> Result<()> {
 pub async fn get(pool: &PgPool, id: &str) -> Result<Run> {
     let row: Option<RunDb> = sqlx::query_as(
         "SELECT id, workspace, intent, goal, status, model, checkpoint, result_json, error_json, \
-                started_at, completed_at FROM runs WHERE id = $1",
+                cancel_requested, started_at, completed_at FROM runs WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -131,6 +135,64 @@ pub async fn set_status(
     Ok(())
 }
 
+/// 请求取消：只置标志，不杀进程。已结束的工单是 no-op（幂等）。
+pub async fn request_cancel(pool: &PgPool, id: &str) -> Result<bool> {
+    let mut tx = pool.begin().await?;
+    let cur: Option<(String,)> = sqlx::query_as("SELECT status FROM runs WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let Some((status,)) = cur else {
+        return Err(Error::Domain(domain::Error::NotFound(format!("工单 {id}"))));
+    };
+    match status.as_str() {
+        "queued" => {
+            // 还没被 worker 领走：直接收尾，并把对应 job 标 done，别让它白跑一次。
+            sqlx::query(
+                "UPDATE runs SET cancel_requested = true, status = 'cancelled', \
+                   last_active = now(), completed_at = now() WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE jobs SET state = 'done' \
+                 WHERE kind = 'run' AND state = 'pending' AND payload->>'run_id' = $1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(true)
+        }
+        "running" => {
+            sqlx::query(
+                "UPDATE runs SET cancel_requested = true, last_active = now() WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(true)
+        }
+        // 已结束：幂等 no-op
+        _ => {
+            tx.commit().await?;
+            Ok(false)
+        }
+    }
+}
+
+/// worker 在工具边界查这个：true 就收尾成 `cancelled`。
+pub async fn is_cancel_requested(pool: &PgPool, id: &str) -> Result<bool> {
+    let v: Option<(bool,)> = sqlx::query_as("SELECT cancel_requested FROM runs WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    v.map(|(b,)| b)
+        .ok_or_else(|| Error::Domain(domain::Error::NotFound(format!("工单 {id}"))))
+}
+
 /// 记阶段（`docs/design.md §2.1`）：三段是同一工单的三个 `checkpoint.phase`。
 /// 合并写进 checkpoint，不动其他键。
 pub async fn set_phase(pool: &PgPool, id: &str, phase: &str) -> Result<()> {
@@ -146,7 +208,12 @@ pub async fn set_phase(pool: &PgPool, id: &str, phase: &str) -> Result<()> {
 }
 
 /// 往 checkpoint 合并一个键（阶段产物：骨架、覆盖率等）。
-pub async fn set_checkpoint(pool: &PgPool, id: &str, key: &str, value: &serde_json::Value) -> Result<()> {
+pub async fn set_checkpoint(
+    pool: &PgPool,
+    id: &str,
+    key: &str,
+    value: &serde_json::Value,
+) -> Result<()> {
     sqlx::query(
         "UPDATE runs SET checkpoint = checkpoint || jsonb_build_object($2::text, $3::jsonb), \
            last_active = now() WHERE id = $1",
@@ -199,7 +266,12 @@ pub async fn events_after(pool: &PgPool, run_id: &str, after: i32) -> Result<Vec
     .await?;
     Ok(rows
         .into_iter()
-        .map(|r| RunEvent { seq: r.seq, r#type: r.r#type, payload: r.payload, created_at: r.created_at })
+        .map(|r| RunEvent {
+            seq: r.seq,
+            r#type: r.r#type,
+            payload: r.payload,
+            created_at: r.created_at,
+        })
         .collect())
 }
 
@@ -259,11 +331,11 @@ pub async fn append_message(pool: &PgPool, m: &NewMessage) -> Result<i32> {
                         THEN left(regexp_replace($3, '[[:space:]]+', ' ', 'g'), 36) ELSE title END \
          WHERE id = $1",
     )
-        .bind(&m.session_id)
-        .bind(&m.role)
-        .bind(&m.content)
-        .execute(pool)
-        .await?;
+    .bind(&m.session_id)
+    .bind(&m.role)
+    .bind(&m.content)
+    .execute(pool)
+    .await?;
     Ok(seq)
 }
 
@@ -405,11 +477,7 @@ pub struct SessionHit {
     pub updated_at: DateTime<Utc>,
 }
 
-pub async fn search_sessions(
-    pool: &PgPool,
-    query: &str,
-    limit: i64,
-) -> Result<Vec<SessionHit>> {
+pub async fn search_sessions(pool: &PgPool, query: &str, limit: i64) -> Result<Vec<SessionHit>> {
     let like = format!("%{}%", query.trim());
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -446,11 +514,7 @@ pub async fn search_sessions(
     Ok(out)
 }
 
-pub async fn read_session(
-    pool: &PgPool,
-    id: &str,
-    limit: i64,
-) -> Result<Vec<NewMessage>> {
+pub async fn read_session(pool: &PgPool, id: &str, limit: i64) -> Result<Vec<NewMessage>> {
     #[derive(sqlx::FromRow)]
     struct Row {
         session_id: String,
@@ -471,9 +535,7 @@ pub async fn read_session(
     .fetch_all(pool)
     .await?;
     if rows.is_empty() {
-        return Err(Error::Domain(domain::Error::NotFound(format!(
-            "会话 {id}"
-        ))));
+        return Err(Error::Domain(domain::Error::NotFound(format!("会话 {id}"))));
     }
     Ok(rows
         .into_iter()

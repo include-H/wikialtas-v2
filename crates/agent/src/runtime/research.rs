@@ -102,6 +102,7 @@ pub async fn run(
     let mut dup = DupCallGuard::new();
 
     for iter in 1..=max_iters {
+        crate::runtime::common::ensure_not_cancelled(pool, run_id).await?;
         // 每轮开头把「还缺什么」用代码算出来注入（模型不用自己记账）
         if iter > 1 {
             let cov = ledger.coverage(medium);
@@ -130,6 +131,7 @@ pub async fn run(
 
         let mut results: Vec<(ToolCall, Value)> = vec![];
         for call in &turn.calls {
+            crate::runtime::common::ensure_not_cancelled(pool, run_id).await?;
             let out = dispatch(
                 pool,
                 work_id,

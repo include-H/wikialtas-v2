@@ -204,6 +204,8 @@
 | D72 | **通用 Harness 工具面补齐，不把 API 当工具**：节点/正文局部编辑/批量章节/关系/媒体链/资料/归档/todo/会话回忆全部进工具面；编辑器三态 `edit / proofread / read` 从 run context 进入工具面与 `policy` 双层裁剪（read 无写工具；proofread 有写工具但默认只报告问题，明确要求才改；edit 由模型判断问还是做）。提示词采用 DSH 风格，工具怎么用写在工具 description。联网搜索改为**一个聚合 `search_web`**：Exa / Brave / DeepSeek 并行、URL 去重、RRF 融合、单 provider 失败可降级；不设“无限循环”，但默认预算提高为检索 24 / 抓取 16 / 研究 48 轮，均可配置。单次搜索默认融合 20 条（上限 50），provider 侧自动拉 20–100 条候选 | `tools.md` · `phases.rs` · `harness_tools/` · `websearch.rs` |
 | D73 | **多轮会话是 Harness 一等公民**：一个节点下可有多条 session；每次 run 必须绑定 `session_id`，运行时从 `session_messages` 重建历史（最近 40 条、3 万字符预算）。默认会话为 `work:<node_id>`，新会话为 `work:<node_id>:<uuid>`；用户与助手消息 append-only，首条用户消息自动成为新会话标题。前端支持会话切换、新建和历史消息渲染 | `backend.md §6` · `api.md §1.5` · `runs.rs` · `AiPanel.tsx` |
 | D74 | **「接受 / 拒绝 AI 修订」在 v2 = 定稿 / 丢弃草稿**：AI 产物只落 `content_drafts`（D46），**接受 = 定稿**（走既有 commit 事务）；**拒绝 = `DELETE /api/nodes/{id}/draft`**，回到最近一次定稿、不产生版本。不再迁 v1 `PendingRevisions` 的 localStorage 归档机制（那是「AI 直接 commit 后再回滚」的补丁） | `frontend.md §5.5` · `api.md §1.2` · `content.rs` · `DocPanel.tsx` |
+| D75 | **取消运行是协作式收尾，不是杀进程**：`POST /api/runs/{id}/cancel` 排队中直接置 `cancelled` 并把对应 job 标 `done`；运行中只置 `cancel_requested`，worker 在**模型轮次 / 工具调用 / 写作阶段**边界检查并收尾成 `cancelled`（发 `wikiatlas.run.end {status:cancelled}`，草稿保留）。`GET /api/runs/{id}` 给前端重连与状态展示。不依赖进程内 token，worker 崩了重启也能看到标志 | `backend.md §1` · `api.md §1.5` · `runs.rs` · `atlas.rs` · `AiPanel.tsx` |
+| D76 | **节点管理闭环**：`PATCH /api/nodes/{id}` 改标题 / 别名 / 标签 / 父节点（移动时追加到新父末尾，禁止移进自己子树）；归档恢复用 `POST /api/nodes/{id}/unarchive`，**恢复整棵子树**，有定稿回 `ready`、否则回 `draft`。左栏「已归档」入口列出归档节点，文档「⋯」菜单在归档态显示「取消归档」 | `api.md §1.1` · `nodes.rs` · `TreePanel.tsx` · `DocPanel.tsx` |
 
 ---
 

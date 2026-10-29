@@ -429,6 +429,38 @@ body {
   white-space: nowrap;
 }
 
+.side-archived {
+  flex: none;
+  max-height: 168px;
+  overflow: auto;
+  padding: 4px 6px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+  font-size: 12px;
+}
+
+.side-archived > summary {
+  cursor: pointer;
+  color: var(--ant-color-text-tertiary);
+  user-select: none;
+}
+
+.side-archived-row {
+  padding: 4px 8px;
+  margin-top: 2px;
+  border-radius: 6px;
+  color: var(--ant-color-text-secondary);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-archived-row:hover,
+.side-archived-row.is-active {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
+}
+
 .side-foot {
   flex: none;
   display: flex;
@@ -1648,6 +1680,18 @@ body {
 .node-info td:first-child {
   width: 96px;
   color: var(--ant-color-text-tertiary);
+}
+
+.node-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.node-edit > label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
 }
 
 .version-preview {

@@ -44,12 +44,13 @@
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
 | GET | `/api/healthz` | 存活探针 | ✅ |
-| GET | `/api/tree` | **扁平**节点列表（父在前、同级按 `sort_key`）；前端拼树 | ✅ |
+| GET | `/api/tree` | **扁平**节点列表（父在前、同级按 `sort_key`）；前端拼树；不含归档 | ✅ |
+| GET | `/api/archived` | 已归档节点（最近 200 条；左栏「已归档」入口） | ✅ D76 |
 | GET | `/api/nodes/{id}` | 节点 + 定稿 + 草稿（`NodeContent`） | ✅ |
 | POST | `/api/nodes` | 建节点（走领域校验：work 必带介质、doc 不带） | ✅ |
-| PATCH | `/api/nodes/{id}` | 改标题/别名/标签/父/状态/可见性 | ⬜ |
+| PATCH | `/api/nodes/{id}` | 改标题 / 别名 / 标签 / 父节点（移动；`move_to_root` 移到根） | ✅ D76 |
 | POST | `/api/nodes/{id}/archive` | 归档整棵子树（默认删除策略，数据保留） | ✅ |
-| POST | `/api/nodes/{id}/move` | 移动（父/排序） | ⬜ |
+| POST | `/api/nodes/{id}/unarchive` | 取消归档：恢复整棵子树（有定稿回 `ready`，否则 `draft`） | ✅ D76 |
 
 ### 1.2 内容（人的写路径；AI 复用同一条）
 
@@ -104,10 +105,9 @@
 | POST | `/api/sessions` | 新建会话 | ✅ |
 | GET | `/api/sessions/{id}` | 会话详情 + 消息投影 | ✅ |
 | GET | `/api/skills` | 从项目 `skills/*/SKILL.md` 列出可发现入口（不含 references 模块） | ✅ |
-| GET | `/api/runs/{id}` | 工单状态 | ⬜ |
+| GET | `/api/runs/{id}` | 工单状态（`status` / `cancel_requested` / checkpoint / result / error） | ✅ D75 |
+| POST | `/api/runs/{id}/cancel` | 取消：排队中直接 `cancelled` 并把 job 标 done；运行中置 `cancel_requested`，worker 在工具 / 阶段边界收尾 | ✅ D75 |
 | POST | `/api/runs/{id}/resume` | 续跑 | ⬜ |
-| POST | `/api/runs/{id}/cancel` | 取消（置 `cancel_requested`，worker 在工具边界检查） | ⬜ |
-| GET | `/api/runs/{id}/events?cursor=` | **SSE**（见 §4） | ⬜ |
 
 ### 1.6 Review / 体检 / 检索
 

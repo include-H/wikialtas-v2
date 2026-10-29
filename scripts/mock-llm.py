@@ -9,8 +9,10 @@
 用法：python3 scripts/mock-llm.py [port]，默认 8099。
 """
 import json
+import os
 import re
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---- 研究段脚本：字段 / 断言 / 来源 URL / 标题 ----
@@ -130,6 +132,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        # 取消验收用：每个模型往返慢一点，给 /cancel 留出窗口。
+        if os.environ.get("MOCK_SLOW") == "1":
+            time.sleep(1.5)
         n = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(n) or b"{}")
         blob = json.dumps(body, ensure_ascii=False)

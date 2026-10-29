@@ -87,6 +87,7 @@ export default function TreePanel({
   const kind: NodeKind = Form.useWatch('kind', form) ?? 'work'
 
   const nodes = useQuery({ queryKey: ['tree'], queryFn: api.tree })
+  const archived = useQuery({ queryKey: ['archived'], queryFn: api.archived })
   const overview = useQuery({ queryKey: ['overview'], queryFn: api.overview })
 
   const create = useMutation({
@@ -222,6 +223,25 @@ export default function TreePanel({
           />
         )}
       </div>
+
+      {!!archived.data?.length && (
+        <details className="side-archived">
+          <summary>已归档（{archived.data.length}）</summary>
+          {archived.data.map((n) => (
+            <div
+              key={n.id}
+              className={`side-archived-row${selectedId === n.id ? ' is-active' : ''}`}
+              onClick={() => {
+                select(n.id)
+                setView('doc')
+                onNavigate?.()
+              }}
+            >
+              {n.title}
+            </div>
+          ))}
+        </details>
+      )}
 
       <div className="side-foot">
         <span>{total} 个节点</span>

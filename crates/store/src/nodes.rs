@@ -2,10 +2,10 @@
 
 use crate::{map_unique, Error, Result};
 use chrono::{DateTime, Utc};
+use domain::{Medium, NewNode, Node, NodeKind, NodeStatus, Visibility};
 use sqlx::PgPool;
 use uuid::Uuid;
 use wikiatlas_domain as domain;
-use domain::{Medium, NewNode, Node, NodeKind, NodeStatus, Visibility};
 
 #[derive(sqlx::FromRow)]
 struct NodeRow {
@@ -81,7 +81,10 @@ pub async fn get(pool: &PgPool, id: Uuid) -> Result<Node> {
 /// 读一个节点（**调用方的事务里**）：`library::build_doc` 要在一个事务里读回刚复用/新建的节点。
 pub async fn get_in_tx(tx: &mut sqlx::PgConnection, id: Uuid) -> Result<Node> {
     let sql = format!("SELECT {COLS} FROM nodes WHERE id = $1");
-    let row: Option<NodeRow> = sqlx::query_as(&sql).bind(id).fetch_optional(&mut *tx).await?;
+    let row: Option<NodeRow> = sqlx::query_as(&sql)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
     row.ok_or_else(|| Error::Domain(domain::Error::NotFound(format!("节点 {id}"))))?
         .try_into()
 }
@@ -116,6 +119,45 @@ pub async fn archive(pool: &PgPool, id: Uuid) -> Result<Node> {
         .try_into()
 }
 
+/// 已归档节点（默认树里看不到；给「已归档」入口恢复用）。
+pub async fn archived(pool: &PgPool, limit: i64) -> Result<Vec<Node>> {
+    // 只列归档根：子节点可能也带 archived，但恢复入口应给“整棵子树”的根，
+    // 否则恢复一个子节点后父节点仍归档，树里会出现看不见的孤儿。
+    let sql = format!(
+        "SELECT {COLS} FROM nodes n WHERE n.status = 'archived' \
+           AND (n.parent_id IS NULL OR NOT EXISTS ( \
+             SELECT 1 FROM nodes p WHERE p.id = n.parent_id AND p.status = 'archived')) \
+         ORDER BY n.updated_at DESC LIMIT $1"
+    );
+    let rows: Vec<NodeRow> = sqlx::query_as(&sql).bind(limit).fetch_all(pool).await?;
+    rows.into_iter().map(Node::try_from).collect()
+}
+
+/// 取消归档（恢复整棵子树）。有定稿的恢复成 `ready`，否则回 `draft`；
+/// 原本没归档的节点保持原状态（只处理 `archived`）。
+pub async fn unarchive(pool: &PgPool, id: Uuid) -> Result<Node> {
+    let sql = format!(
+        "WITH RECURSIVE subtree(id) AS ( \
+           SELECT id FROM nodes WHERE id = $1 \
+           UNION ALL \
+           SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id \
+         ) \
+         UPDATE nodes SET \
+           status = CASE WHEN nodes.status = 'archived' THEN \
+             (CASE WHEN EXISTS (SELECT 1 FROM contents c WHERE c.node_id = nodes.id) \
+                   THEN 'ready' ELSE 'draft' END) \
+           ELSE nodes.status END, \
+           updated_at = now() \
+         WHERE id IN (SELECT id FROM subtree) \
+         RETURNING {COLS}"
+    );
+    let rows: Vec<NodeRow> = sqlx::query_as(&sql).bind(id).fetch_all(pool).await?;
+    rows.into_iter()
+        .find(|row| row.id == id)
+        .ok_or_else(|| Error::Domain(domain::Error::NotFound(format!("节点 {id}"))))?
+        .try_into()
+}
+
 /// 建节点（**调用方的事务里**）。`library::build_doc` 要「建容器系列 + 建文档 + 挂链」
 /// 三件事同一个事务，所以把这段抽出来共用——避免两条建节点路径各写一遍规则。
 pub async fn create_in_tx(tx: &mut sqlx::PgConnection, new: &NewNode) -> Result<Node> {
@@ -129,10 +171,15 @@ pub async fn create_in_tx(tx: &mut sqlx::PgConnection, new: &NewNode) -> Result<
             .fetch_optional(&mut *tx)
             .await?;
         if exists.is_none() {
-            return Err(Error::Domain(domain::Error::NotFound(format!("父节点 {pid}"))));
+            return Err(Error::Domain(domain::Error::NotFound(format!(
+                "父节点 {pid}"
+            ))));
         }
     }
-    let lock_key = new.parent_id.map(|p| p.to_string()).unwrap_or_else(|| "root".into());
+    let lock_key = new
+        .parent_id
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "root".into());
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(&lock_key)
         .execute(&mut *tx)
@@ -204,7 +251,9 @@ pub async fn update(pool: &PgPool, id: Uuid, patch: &NodePatch) -> Result<Node> 
         }
     }
     let sort_key = if parent_id != current.parent_id {
-        let lock_key = parent_id.map(|p| p.to_string()).unwrap_or_else(|| "root".into());
+        let lock_key = parent_id
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "root".into());
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(&lock_key)
             .execute(&mut *tx)
