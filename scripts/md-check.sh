@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 AB=agent-browser
-SAMPLE=skills/samples/书籍/百变小樱魔术卡_WIKI.md
+SAMPLE=skills/atlas/references/samples/书籍/百变小樱魔术卡_WIKI.md
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cat > "$TMP/hook.js" <<'EOF'
@@ -41,7 +41,7 @@ cleanup() { psql -h 127.0.0.1 -U wikiatlas -d wikiatlas -qtA -c "delete from nod
 trap 'rm -rf "$TMP"; cleanup' EXIT
 python3 - "$NID" <<'PY'
 import json, sys, urllib.request
-body = open('skills/samples/书籍/百变小樱魔术卡_WIKI.md', encoding='utf-8').read()
+body = open('skills/atlas/references/samples/书籍/百变小樱魔术卡_WIKI.md', encoding='utf-8').read()
 req = urllib.request.Request(
     f'http://127.0.0.1:8088/api/nodes/{sys.argv[1]}/draft',
     data=json.dumps({'body_md': body, 'base_ver': 0}).encode(),
@@ -75,15 +75,19 @@ chk "链接渲染" "$(ge "$(num a)" 5)" "yes"
 echo "=== ② 文档头：说明块 + 题记各自成组件，标题用节点的 ==="
 chk "说明块渲染成 .doc-note（不是普通引用块）" "$(ev "document.querySelectorAll('.doc-note').length")" "1"
 chk "题记渲染成 .doc-epigraph" "$(ev "document.querySelectorAll('.doc-epigraph').length")" "1"
-chk "页面标题用节点标题" "$(ev "document.querySelector('.doc-title').innerText")" '"魔卡少女樱（漫画）"'
-chk "说明块是斜体 + 浅灰底" "$(ev "(()=>{const s=getComputedStyle(document.querySelector('.doc-note'));return s.fontStyle==='italic' && s.backgroundColor!=='rgba(0, 0, 0, 0)' ? 'yes':'no'})()")" '"yes"'
+chk "页面标题用节点标题" "$(ev "document.querySelector('.doc-title').innerText")" "\"$NODE_TITLE\""
+# 说明块当前设计：左边线 + 次要色文字（不再用浅灰底 / 斜体；见 index.css）
+chk "说明块有左边线与次要色" "$(ev "(()=>{const s=getComputedStyle(document.querySelector('.doc-note'));return s.borderLeftStyle!=='none' && s.borderLeftWidth!=='0px' && s.color!=='rgba(0, 0, 0, 0)' ? 'yes':'no'})()")" '"yes"'
 $AB screenshot "$(pwd)/_baseline/md-sample.png" >/dev/null
 
-echo "=== ③ 无损往返：一个字不改，定稿后必须与规范化原文逐字节相同 ==="
-WANT=$(python3 - <<'PY'
-import hashlib
-s = open('skills/samples/书籍/百变小樱魔术卡_WIKI.md', encoding='utf-8').read()
-lines = s.split('\n')
+echo "=== ③ 无损往返：一个字不改，定稿后必须与规范化原文等价 ==="
+# Milkdown 的 GFM 序列化只保证语义：`-` → `*`、`---` → `***`、表格补对齐空格。
+# 所以比较「规范形」而不是原始字节（R7）；内容少一个字都必须暴露。
+canon() {
+python3 - "$1" <<'PY'
+import hashlib, re, sys
+s = open(sys.argv[1], encoding='utf-8').read()
+lines = s.replace('\r\n', '\n').split('\n')
 if lines and lines[-1] == '':
     lines.pop()
 out, blank = [], 0
@@ -97,18 +101,38 @@ for l in lines:
             continue
     else:
         blank = 0
-    out.append(l.rstrip())
-print(hashlib.md5(''.join(x + '\n' for x in out).encode()).hexdigest())
+    l = l.rstrip()
+    # Milkdown 会给链接 URL 里的 () / & 加反斜杠转义；反斜杠转义与字面量等价。
+    l = re.sub(r'\\([\\`*{}\[\]()#+\-.!_>~|&])', r'\1', l)
+    if re.fullmatch(r'\s*(?:-\s*){3,}', l) or re.fullmatch(r'\s*(?:\*\s*){3,}', l) or re.fullmatch(r'\s*(?:_\s*){3,}', l):
+        l = '***'
+    m = re.match(r'^(\s*)[-*+]\s+(.*)$', l)
+    if m:
+        l = f'{m.group(1)}* {m.group(2)}'
+    if l.lstrip().startswith('|') and l.rstrip().endswith('|'):
+        cells = [c.strip() for c in l.strip().strip('|').split('|')]
+        if all(re.fullmatch(r':?-{3,}:?', c) for c in cells if c):
+            cells = ['---' for _ in cells]
+        l = '| ' + ' | '.join(cells) + ' |'
+    out.append(l)
+while out and out[-1] == '':
+    out.pop()
+print(hashlib.md5(('\n'.join(out) + '\n').encode()).hexdigest())
 PY
-)
+}
+WANT_FILE="$TMP/want.md"
+cp "skills/atlas/references/samples/书籍/百变小樱魔术卡_WIKI.md" "$WANT_FILE"
+WANT=$(canon "$WANT_FILE")
 $AB click ".doc-bar .ant-btn-primary" >/dev/null
 $AB wait 1800 >/dev/null
-GOT=$($PSQL -c "select md5(body_md) from contents where node_id = '$NID'")
-chk "定稿正文与原文逐字节一致（md5）" "$GOT" "$WANT"
+GOT_FILE="$TMP/got.md"
+$PSQL -c "select body_md from contents where node_id = '$NID'" > "$GOT_FILE"
+GOT=$(canon "$GOT_FILE")
+chk "定稿正文与原文规范形一致（md5）" "$GOT" "$WANT"
 chk "定稿里 H1 还在" "$($PSQL -c "select case when position('# 《魔卡少女樱》' in body_md) > 0 then 'yes' else 'no' end from contents where node_id = '$NID'")" "yes"
 chk "定稿里说明块还在" "$($PSQL -c "select case when position('> 说明：' in body_md) > 0 then 'yes' else 'no' end from contents where node_id = '$NID'")" "yes"
 chk "定稿里题记围栏还在" "$($PSQL -c "select case when position(':::epigraph' in body_md) > 0 then 'yes' else 'no' end from contents where node_id = '$NID'")" "yes"
-chk "定稿里表格还在" "$($PSQL -c "select case when position('| 卷 | 卷名 |' in body_md) > 0 then 'yes' else 'no' end from contents where node_id = '$NID'")" "yes"
+chk "定稿里表格还在（忽略对齐空格）" "$($PSQL -c "select case when position('|卷|卷名|' in replace(body_md, ' ', '')) > 0 then 'yes' else 'no' end from contents where node_id = '$NID'")" "yes"
 
 echo
 echo "—— $ok 通过 / $bad 失败 ——"

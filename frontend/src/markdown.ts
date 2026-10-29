@@ -26,3 +26,20 @@ export function normalizeMarkdown(md: string): string {
   }
   return out.map((l) => l + '\n').join('')
 }
+
+/**
+ * 比较用的规范形（**只用于判断"有没有改"，不影响存什么**）。
+ *
+ * 编辑器（Milkdown）会把列表符号统一成 `*`，而服务端存的是原文（可能是 `-`）。
+ * 于是「刚装载、没动过」也会被判成 dirty → 1.5 秒后凭空落一条草稿。
+ * 这里把三种列表符号都归一到 `-` 再比，装完就不算改动。
+ */
+export function normalizeForCompare(md: string): string {
+  return normalizeMarkdown(md).replace(/^(\s*)[-*+]\s+/gm, '$1- ')
+}
+
+/** 两份 markdown 是不是"同一篇"（忽略编辑器归一化的序列化差异）。 */
+export function sameDoc(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b
+  return normalizeForCompare(a) === normalizeForCompare(b)
+}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, schemaCtx } from '@milkdown/kit/core'
@@ -17,7 +17,7 @@ import { $prose } from '@milkdown/kit/utils'
 import { Plugin } from '@milkdown/kit/prose/state'
 import { DOMParser, DOMSerializer } from '@milkdown/kit/prose/model'
 
-import { bumpEditor, useEditorTick } from './tick'
+import { bumpEditor } from './tick'
 import { slashQuery } from './SlashMenu'
 import Toolbar from './Toolbar'
 import SlashMenu from './SlashMenu'
@@ -34,15 +34,27 @@ interface Props {
    * 那几块由文档面板的组件渲染，不进编辑器）。返回要真正插入的 markdown；
    * **原样返回 = 不插手**，交回默认粘贴。
    */
-  transformPastedText?: (text: string) => string
+  transformPastedText?: (
+    text: string,
+    context: { wholeDocSelected: boolean },
+  ) => string
   /** 空文档里那句空提示的「AI 帮我写」入口。 */
   onAiWrite?: () => void
 }
 
-type PasteTransform = (text: string) => string
+type PasteTransform = NonNullable<Props['transformPastedText']>
 
 const [toolbarSpec, toolbarPlugin] = tooltipFactory('WIKI_TOOLBAR')
 const [slashSpec, slashPlugin] = slashFactory('WIKI_SLASH')
+
+/**
+ * 浮层必须挂进 `.shell`（在 `.app-root` 之内）：AntD v6 把 `--ant-color-*` 变量注入在
+ * `.app-root` 上、`--ai` 注入在 `.shell` 上。挂到 `document.body` 的话，浮层里的
+ * `var(--ant-*)` / `var(--ai)` 全是空值——表现就是工具栏/菜单没底色、AI 不是紫色。
+ */
+function portalRoot(): HTMLElement {
+  return (document.querySelector('.shell') as HTMLElement | null) ?? document.body
+}
 
 /** 编辑器每次事务后 bump 一下版本号，让工具栏/菜单跟着选区刷新。 */
 const tickObserver = $prose(
@@ -85,11 +97,14 @@ function pasteTransformPlugin(ref: { current: PasteTransform | undefined }) {
             const text = data?.getData('text/plain')
             if (!data || !text) return false
             const inCode = view.state.selection.$from.parent.type.spec.code
+            const { selection, doc } = view.state
+            const wholeDocSelected =
+              selection.from === 0 && selection.to === doc.content.size
             let rest = text
             let handled = false
             const transform = ref.current
             if (transform) {
-              const out = transform(text)
+              const out = transform(text, { wholeDocSelected })
               if (out !== text) {
                 rest = out
                 handled = true
@@ -176,7 +191,7 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
             view: () => {
               const provider = new TooltipProvider({
                 content: toolbarEl,
-                root: document.body,
+                root: portalRoot(),
                 floatingUIOptions: { strategy: 'fixed' },
               })
               return { update: provider.update, destroy: provider.destroy }
@@ -186,7 +201,10 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
             view: () => {
               const provider = new SlashProvider({
                 content: slashEl,
-                root: document.body,
+                root: portalRoot(),
+                // 默认 200ms 防抖会把「输入 `/` 那次 update」和随后的 meta 事务塌成一次，
+                // 末次的 doc/selection 没变 → `isSame` 早退 → 从没算过位置，菜单停在 (0,0)。见 R12。
+                debounce: 0,
                 floatingUIOptions: { strategy: 'fixed' },
                 shouldShow: (view) => slashQuery(view) !== null,
               })
@@ -200,8 +218,9 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
               const provider = new BlockProvider({
                 ctx,
                 content: blockEl,
-                root: document.body,
-                getOffset: () => 6,
+                root: portalRoot(),
+                // 让手柄落在正文左侧的空白里（不然会压到标题/正文的起始字符）
+                getOffset: () => 12,
                 floatingUIOptions: { strategy: 'fixed' },
               })
               blockProvider.current = provider
@@ -231,18 +250,52 @@ function Inner({ initial, onChange, readOnly, transformPastedText, onAiWrite }: 
     const editor = get()
     if (!editor) return
     editor.action((ctx) => ctx.get(editorViewCtx).setProps({ editable: () => !readOnly }))
+    // 切到阅读态时把块手柄收起来（BlockService 只挡编辑态的 hover，不会替我们收）
+    if (readOnly) blockProvider.current?.hide()
   }, [loading, get, readOnly])
 
-  useEditorTick()
+  // 注意：**这里不要 useEditorTick()**。Inner 每帧重渲染会给编辑器再派发一次事务
+  // （实测 ~56 次/秒的忙循环），既烧 CPU，又让 SlashProvider 的 200ms 防抖永远
+  // 攒不到一次 —— 表现就是「/ 菜单一直不出来」。工具栏/菜单各自订阅 tick 就够了。
+
   const editor = loading ? undefined : get()
   const empty = !!editor && !readOnly && isEmpty(editor)
 
+  // 空文档提示钉在**光标**上（v1 的 placeHint）：固定偏移会在光标移到别处时对不上。
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const [hintPos, setHintPos] = useState<{ top: number; left: number } | null>(null)
+  const placeHint = useCallback(() => {
+    const ed = get()
+    const wrap = wrapRef.current
+    if (!ed || !wrap) return
+    try {
+      ed.action((ctx) => {
+        const view = ctx.get(editorViewCtx)
+        const coords = view.coordsAtPos(view.state.selection.head)
+        const rect = wrap.getBoundingClientRect()
+        setHintPos({ top: coords.top - rect.top, left: coords.left - rect.left })
+      })
+    } catch {
+      setHintPos(null)
+    }
+  }, [get])
+
+  useEffect(() => {
+    if (!empty) return
+    const raf = window.requestAnimationFrame(placeHint)
+    window.addEventListener('resize', placeHint)
+    return () => {
+      window.cancelAnimationFrame(raf)
+      window.removeEventListener('resize', placeHint)
+    }
+  }, [empty, placeHint])
+
   return (
     <>
-      <div className="milkdown-wrap">
+      <div className="milkdown-wrap" ref={wrapRef}>
         <Milkdown />
-        {empty && onAiWrite && (
-          <div className="doc-empty-hint">
+        {empty && onAiWrite && hintPos && (
+          <div className="doc-empty-hint" style={{ top: hintPos.top, left: hintPos.left }}>
             <span>按 “/” 插入内容，或让</span>
             <button type="button" className="ai-inline-pill" onClick={onAiWrite}>
               ✦ AI 帮我写

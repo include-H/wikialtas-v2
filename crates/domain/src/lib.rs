@@ -1,11 +1,14 @@
-//! WikiAtlas 的**纯**领域层：类型 + 规则，零 IO。
+//! Atlas 的**纯**领域层：类型 + 规则，零 IO。
 //!
 //! 纪律（`docs/backend.md` §3）：这一层不依赖 sqlx / axum / tokio；
 //! 规则写在类型与函数里、配单测——v1 的教训正是「规则写在 httpapi 里，没有测试基建」。
 
 pub mod library;
 pub mod place;
+pub mod relation;
+pub mod review;
 pub mod sortkey;
+pub mod sync;
 pub mod text;
 
 use chrono::{DateTime, Utc};

@@ -59,3 +59,14 @@ pub async fn list_keys(pool: &PgPool) -> Result<Vec<String>> {
         .await?;
     Ok(rows.into_iter().map(|(k,)| k).collect())
 }
+
+/// 列出全部非密钥配置（值可以回显给设置页）。
+pub async fn list_settings(
+    pool: &PgPool,
+) -> Result<Vec<(String, serde_json::Value)>> {
+    let rows: Vec<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT key, value FROM app_settings ORDER BY key")
+            .fetch_all(pool)
+            .await?;
+    Ok(rows)
+}

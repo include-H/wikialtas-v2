@@ -17,6 +17,12 @@ export default function BlockHandle({
 }) {
   const editor = useEditorInstance()
 
+  // 空文档没有块可拖——别让手柄压在光标上
+  const empty =
+    !editor ||
+    editor.action((ctx) => ctx.get(editorViewCtx).state.doc.textContent.trim() === '')
+  if (empty) return null
+
   const removeBlock = () => {
     const active = providerRef.current?.active
     if (!editor || !active) return

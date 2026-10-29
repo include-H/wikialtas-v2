@@ -131,6 +131,34 @@ pub async fn set_status(
     Ok(())
 }
 
+/// 记阶段（`docs/design.md §2.1`）：三段是同一工单的三个 `checkpoint.phase`。
+/// 合并写进 checkpoint，不动其他键。
+pub async fn set_phase(pool: &PgPool, id: &str, phase: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE runs SET checkpoint = checkpoint || jsonb_build_object('phase', $2::text), \
+           last_active = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(phase)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// 往 checkpoint 合并一个键（阶段产物：骨架、覆盖率等）。
+pub async fn set_checkpoint(pool: &PgPool, id: &str, key: &str, value: &serde_json::Value) -> Result<()> {
+    sqlx::query(
+        "UPDATE runs SET checkpoint = checkpoint || jsonb_build_object($2::text, $3::jsonb), \
+           last_active = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(key)
+    .bind(value)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 追加一条事件（seq 由 `run_events` 自己按 run 递增）。
 pub async fn append_event(
     pool: &PgPool,
@@ -187,6 +215,26 @@ pub struct NewMessage {
     pub tool_name: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SessionInfo {
+    pub id: String,
+    pub target: String,
+    pub title: String,
+    pub message_count: i64,
+    pub preview: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SessionMessageView {
+    pub id: String,
+    pub seq: i32,
+    pub role: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+}
+
 pub async fn append_message(pool: &PgPool, m: &NewMessage) -> Result<i32> {
     let (seq,): (i32,) = sqlx::query_as(
         "INSERT INTO session_messages \
@@ -205,6 +253,17 @@ pub async fn append_message(pool: &PgPool, m: &NewMessage) -> Result<i32> {
     .bind(&m.tool_name)
     .fetch_one(pool)
     .await?;
+    sqlx::query(
+        "UPDATE sessions SET updated_at = now(), \
+           title = CASE WHEN title = '新对话' AND $2 = 'user' \
+                        THEN left(regexp_replace($3, '[[:space:]]+', ' ', 'g'), 36) ELSE title END \
+         WHERE id = $1",
+    )
+        .bind(&m.session_id)
+        .bind(&m.role)
+        .bind(&m.content)
+        .execute(pool)
+        .await?;
     Ok(seq)
 }
 
@@ -220,4 +279,214 @@ pub async fn ensure_session(pool: &PgPool, id: &str, target: &str, title: &str) 
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// 某节点的会话列表（最近更新在前）。
+pub async fn sessions_for_node(pool: &PgPool, node_id: Uuid) -> Result<Vec<SessionInfo>> {
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        i64,
+        String,
+        DateTime<Utc>,
+        DateTime<Utc>,
+    )> = sqlx::query_as(
+        "SELECT s.id, s.target, s.title, \
+                count(m.id)::bigint AS message_count, \
+                COALESCE((SELECT left(m2.content, 120) FROM session_messages m2 \
+                          WHERE m2.session_id = s.id AND m2.content <> '' \
+                          ORDER BY m2.seq DESC LIMIT 1), '') AS preview, \
+                s.created_at, s.updated_at \
+         FROM sessions s LEFT JOIN session_messages m ON m.session_id = s.id \
+         WHERE s.target = $1 OR s.id = $2 OR s.id LIKE $3 \
+         GROUP BY s.id ORDER BY s.updated_at DESC LIMIT 100",
+    )
+    .bind(node_id.to_string())
+    .bind(format!("work:{node_id}"))
+    .bind(format!("work:{node_id}:%"))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| SessionInfo {
+            id: r.0,
+            target: r.1,
+            title: r.2,
+            message_count: r.3,
+            preview: r.4,
+            created_at: r.5,
+            updated_at: r.6,
+        })
+        .collect())
+}
+
+/// 会话详情消息（正序，只取 user/assistant；工具日志留在库里给审计，不直接回灌成自然语言）。
+pub async fn session_messages(
+    pool: &PgPool,
+    session_id: &str,
+    limit: i64,
+) -> Result<Vec<SessionMessageView>> {
+    let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM sessions WHERE id = $1")
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await?;
+    if exists.is_none() {
+        return Err(Error::Domain(domain::Error::NotFound(format!(
+            "会话 {session_id}"
+        ))));
+    }
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: String,
+        seq: i32,
+        role: String,
+        content: String,
+        created_at: DateTime<Utc>,
+    }
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT id, seq, role, content, created_at FROM ( \
+           SELECT id, seq, role, content, created_at FROM session_messages \
+           WHERE session_id = $1 AND role IN ('user','assistant') AND content <> '' \
+           ORDER BY seq DESC LIMIT $2 \
+         ) t ORDER BY seq",
+    )
+    .bind(session_id)
+    .bind(limit.clamp(1, 200))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| SessionMessageView {
+            id: r.id,
+            seq: r.seq,
+            role: r.role,
+            content: r.content,
+            created_at: r.created_at,
+        })
+        .collect())
+}
+
+/// 运行时上下文：最近消息按字符预算裁剪，返回正序 (role, content)。
+pub async fn conversation_context(
+    pool: &PgPool,
+    session_id: &str,
+    char_budget: usize,
+) -> Result<Vec<(String, String)>> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT role, content FROM ( \
+           SELECT role, content, seq FROM session_messages \
+           WHERE session_id = $1 AND role IN ('user','assistant') AND content <> '' \
+           ORDER BY seq DESC LIMIT 40 \
+         ) t ORDER BY seq DESC",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await?;
+    let mut used = 0usize;
+    let mut out = vec![];
+    for (role, content) in rows {
+        let n = content.chars().count();
+        if used + n > char_budget && !out.is_empty() {
+            break;
+        }
+        used += n;
+        out.push((role, content));
+    }
+    out.reverse();
+    Ok(out)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SessionHit {
+    pub session_id: String,
+    pub title: String,
+    pub snippet: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+pub async fn search_sessions(
+    pool: &PgPool,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<SessionHit>> {
+    let like = format!("%{}%", query.trim());
+    if query.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        session_id: String,
+        title: String,
+        content: String,
+        updated_at: DateTime<Utc>,
+    }
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT m.session_id, COALESCE(s.title,'') AS title, \
+                left(m.content, 500) AS content, COALESCE(s.updated_at,m.created_at) AS updated_at \
+         FROM session_messages m LEFT JOIN sessions s ON s.id = m.session_id \
+         WHERE m.content ILIKE $1 ORDER BY m.created_at DESC LIMIT $2",
+    )
+    .bind(like)
+    .bind(limit.clamp(1, 50))
+    .fetch_all(pool)
+    .await?;
+    let mut out: Vec<SessionHit> = vec![];
+    for r in rows {
+        if out.iter().any(|x| x.session_id == r.session_id) {
+            continue;
+        }
+        out.push(SessionHit {
+            session_id: r.session_id,
+            title: r.title,
+            snippet: r.content.chars().take(240).collect(),
+            updated_at: r.updated_at,
+        });
+    }
+    Ok(out)
+}
+
+pub async fn read_session(
+    pool: &PgPool,
+    id: &str,
+    limit: i64,
+) -> Result<Vec<NewMessage>> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        session_id: String,
+        run_id: String,
+        turn: i32,
+        role: String,
+        content: String,
+        tool_calls_json: String,
+        tool_call_id: String,
+        tool_name: String,
+    }
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT session_id, run_id, turn, role, content, tool_calls_json, tool_call_id, tool_name \
+         FROM session_messages WHERE session_id = $1 ORDER BY seq DESC LIMIT $2",
+    )
+    .bind(id)
+    .bind(limit.clamp(1, 200))
+    .fetch_all(pool)
+    .await?;
+    if rows.is_empty() {
+        return Err(Error::Domain(domain::Error::NotFound(format!(
+            "会话 {id}"
+        ))));
+    }
+    Ok(rows
+        .into_iter()
+        .rev()
+        .map(|r| NewMessage {
+            session_id: r.session_id,
+            run_id: r.run_id,
+            turn: r.turn,
+            role: r.role,
+            content: r.content,
+            tool_calls_json: r.tool_calls_json,
+            tool_call_id: r.tool_call_id,
+            tool_name: r.tool_name,
+        })
+        .collect())
 }

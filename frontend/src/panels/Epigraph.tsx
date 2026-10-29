@@ -31,8 +31,10 @@ export default function Epigraph({
 
   // 收尾的 `:::` 之后可能还跟着空行（splitDoc 会把它们留在围栏里，保证往返不丢），
   // 所以这里要吃掉尾随空白，否则 `:::` 会漏成正文一行、署名也认不出来。
+  // 开头同理：`header.fence` 可能带着围栏前的空行（splitDoc 的 fenceGap），
+  // 所以剥 `:::epigraph` 要容忍前导空白——不然那一行会原样显示在题记上方。
   const inner = fence
-    .replace(/^:::epigraph[ \t]*\r?\n/, '')
+    .replace(/^\s*:::epigraph[^\n]*\r?\n/, '')
     .replace(/\r?\n:::[ \t]*\s*$/, '')
   const { lines, author } = parseEpigraph(inner)
 

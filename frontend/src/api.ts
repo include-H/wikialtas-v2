@@ -49,6 +49,7 @@ export interface NodeContent {
 export interface CommitResp {
   ver: number
   updated_at: string
+  sync_job_id?: number
 }
 
 export interface Version {
@@ -134,6 +135,192 @@ export interface Ignore {
 export interface CreateRunResp {
   runId: string
   jobId: number
+  sessionId: string
+}
+
+export interface SessionInfo {
+  id: string
+  target: string
+  title: string
+  message_count: number
+  preview: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SessionMessage {
+  id: string
+  seq: number
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export interface SkillInfo {
+  name: string
+  description: string
+  group: string
+  layer: number
+  chars: number
+}
+
+export interface RecentNode {
+  id: string
+  title: string
+  kind: NodeKind
+  medium: Medium | null
+  status: NodeStatus
+  has_content: boolean
+  ver: number
+  updated_at: string
+}
+
+export interface HomeStats {
+  works: number
+  committed: number
+  drafting: number
+  unbuilt: number
+  recent: RecentNode[]
+}
+
+export interface NodeLink {
+  id: string
+  source: LibrarySource
+  external_id: string
+  title_hint: string
+  url: string | null
+  role: string
+  state: 'active' | 'stale' | 'replaced'
+  missing_since: string | null
+  replaced_by: string | null
+  sync_targets: SyncTarget[]
+}
+
+export type SyncTargetName = 'gameatlas' | 'komga'
+export type SyncStatus = 'pending' | 'ok' | 'failed' | 'skipped'
+
+export interface SyncTarget {
+  link_id: string
+  target: SyncTargetName
+  synced_ver: number | null
+  status: SyncStatus
+  message: string
+  synced_at: string | null
+}
+
+export interface RelinkCandidate {
+  source: LibrarySource
+  external_id: string
+  title: string
+  subtitle: string | null
+  aliases: string[]
+  year: number | null
+  cover_url: string | null
+  url: string | null
+  container_title: string
+  score: number
+}
+
+export interface RelationType {
+  type: string
+  from_label: string
+  to_label: string
+  note: string
+}
+
+export interface RelationNode {
+  id: string
+  title: string
+  kind: NodeKind
+  medium: Medium | null
+}
+
+export interface RelationView {
+  id: string
+  type: string
+  direction: 'out' | 'in'
+  label: string
+  other: RelationNode
+  created_by: string
+  created_at: string
+}
+
+export type SynthesisType = 'role' | 'worldbuilding' | 'timeline' | 'theme' | 'creator'
+
+export interface SynthesisReq {
+  parent_id?: string | null
+  title: string
+  doc_type: SynthesisType
+  work_ids: string[]
+}
+
+export type SuggestionKind = 'create' | 'link' | 'merge' | 'research' | 'ignore' | 'split'
+export type SuggestionState = 'pending' | 'accepted' | 'rejected' | 'ignored'
+
+export interface Suggestion {
+  id: string
+  kind: SuggestionKind
+  node_id: string | null
+  source: LibrarySource | null
+  external_id: string | null
+  payload: Record<string, unknown>
+  state: SuggestionState
+  created_by: string
+  created_at: string
+  decided_at: string | null
+}
+
+export type FindingSeverity = 'info' | 'warn' | 'error'
+export type FindingState = 'open' | 'resolved' | 'ignored'
+
+export interface HealthFinding {
+  id: string
+  kind: string
+  node_id: string | null
+  severity: FindingSeverity
+  detail: Record<string, unknown>
+  state: FindingState
+  created_at: string
+  resolved_at: string | null
+}
+
+export interface SearchHit {
+  node_id: string
+  title: string
+  kind: NodeKind
+  medium: Medium | null
+  status: NodeStatus
+  score: number
+  snippet: string
+}
+
+export interface SettingsResponse {
+  settings: Record<string, unknown>
+  secrets_configured: Record<string, boolean>
+}
+
+export interface ModelUsage {
+  model: string
+  runs: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  estimated_cost: number | null
+}
+
+export interface UsageSummary {
+  runs: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  estimated_cost: number | null
+  pricing_configured: boolean
+  models: ModelUsage[]
+}
+
+export interface AuthStatus {
+  configured: boolean
+  authenticated: boolean
 }
 
 export interface PoolQuery {
@@ -177,9 +364,27 @@ async function toJson<T>(r: Response): Promise<T> {
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
 export const api = {
+  authStatus: () => fetch('/api/auth').then(toJson<AuthStatus>),
+
+  login: (password: string) =>
+    fetch('/api/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ password }),
+    }).then(toJson<{ ok: boolean; configured: boolean }>),
+
+  logout: () => fetch('/api/logout', { method: 'POST' }).then(toJson<{ ok: boolean }>),
+
   tree: () => fetch('/api/tree').then(toJson<Node[]>),
 
+  overview: () => fetch('/api/overview').then(toJson<HomeStats>),
+
+  nodeLinks: (id: string) => fetch(`/api/nodes/${id}/links`).then(toJson<NodeLink[]>),
+
   node: (id: string) => fetch(`/api/nodes/${id}`).then(toJson<NodeContent>),
+
+  archiveNode: (id: string) =>
+    fetch(`/api/nodes/${id}/archive`, { method: 'POST' }).then(toJson<Node>),
 
   createNode: (req: CreateNodeReq) =>
     fetch('/api/nodes', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(req) }).then(
@@ -193,6 +398,11 @@ export const api = {
       body: JSON.stringify({ body_md, base_ver }),
     }).then(toJson<Draft>),
 
+  discardDraft: (id: string) =>
+    fetch(`/api/nodes/${id}/draft`, { method: 'DELETE' }).then(
+      toJson<{ discarded: boolean }>,
+    ),
+
   commit: (id: string, body_md: string, base_ver: number, summary = '') =>
     fetch(`/api/nodes/${id}/commit`, {
       method: 'POST',
@@ -201,6 +411,109 @@ export const api = {
     }).then(toJson<CommitResp>),
 
   versions: (id: string) => fetch(`/api/nodes/${id}/versions`).then(toJson<Version[]>),
+
+  versionBody: (id: string, ver: number) =>
+    fetch(`/api/nodes/${id}/versions/${ver}`).then(toJson<{ ver: number; body_md: string }>),
+
+  relationTypes: () => fetch('/api/relation-types').then(toJson<RelationType[]>),
+
+  relations: (nodeId: string) =>
+    fetch(`/api/relations?node_id=${encodeURIComponent(nodeId)}`).then(toJson<RelationView[]>),
+
+  createRelation: (from_id: string, to_id: string, type: string) =>
+    fetch('/api/relations', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ from_id, to_id, type }),
+    }).then(toJson<{ id: string }>),
+
+  deleteRelation: (id: string) =>
+    fetch(`/api/relations/${id}`, { method: 'DELETE' }).then(toJson<{ ok: boolean }>),
+
+  listSynthesis: () => fetch('/api/synthesis').then(toJson<Node[]>),
+
+  createSynthesis: (req: SynthesisReq) =>
+    fetch('/api/synthesis', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(req),
+    }).then(toJson<Node>),
+
+  syncIndex: (nodeId: string) =>
+    fetch(`/api/nodes/${nodeId}/index`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: '{}',
+    }).then(toJson<Node>),
+
+  suggestions: (state: SuggestionState = 'pending') =>
+    fetch(`/api/suggestions?state=${state}`).then(toJson<Suggestion[]>),
+
+  acceptSuggestion: (id: string, reason = '') =>
+    fetch(`/api/suggestions/${id}/accept`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ reason }),
+    }).then(toJson<{ suggestion: Suggestion; action: string }>),
+
+  rejectSuggestion: (id: string, reason = '') =>
+    fetch(`/api/suggestions/${id}/reject`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ reason }),
+    }).then(toJson<{ suggestion: Suggestion; action: string }>),
+
+  healthFindings: (state: FindingState = 'open') =>
+    fetch(`/api/health-findings?state=${state}`).then(toJson<HealthFinding[]>),
+
+  runAudit: () =>
+    fetch('/api/health-findings/run', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: '{}',
+    }).then(toJson<{ jobId: number }>),
+
+  search: (q: string, limit = 20) =>
+    fetch(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`).then(toJson<SearchHit[]>),
+
+  saveAnswer: (req: {
+    parent_id?: string | null
+    title: string
+    body_md: string
+    ref_ids: string[]
+  }) =>
+    fetch('/api/answers', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(req),
+    }).then(toJson<Node>),
+
+  settings: () => fetch('/api/settings').then(toJson<SettingsResponse>),
+
+  putSettings: (settings: Record<string, unknown>) =>
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify(settings),
+    }).then(toJson<{ ok: boolean }>),
+
+  putSecrets: (secrets: Record<string, string>) =>
+    fetch('/api/secrets', {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify(secrets),
+    }).then(toJson<{ ok: boolean }>),
+
+  usage: () => fetch('/api/usage').then(toJson<UsageSummary>),
+
+  exportProject: () => fetch('/api/export').then(toJson<Record<string, unknown>>),
+
+  importProject: (bundle: Record<string, unknown>) =>
+    fetch('/api/import', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(bundle),
+    }).then(toJson<{ ok: boolean; nodes: number }>),
 
   libraryPool: (q: PoolQuery = {}) =>
     fetch(`/api/library/pool${qs({ ...q })}`).then(toJson<PoolEntry[]>),
@@ -221,6 +534,23 @@ export const api = {
   unlink: (linkId: string) =>
     fetch(`/api/library/links/${linkId}`, { method: 'DELETE' }).then(toJson<{ nodeId: string }>),
 
+  relinkCandidates: (linkId: string) =>
+    fetch(`/api/library/links/${linkId}/relink-candidates`).then(toJson<RelinkCandidate[]>),
+
+  relink: (linkId: string, external_id: string) =>
+    fetch(`/api/library/links/${linkId}/relink`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ external_id }),
+    }).then(toJson<{ linkId: string }>),
+
+  resyncLink: (linkId: string) =>
+    fetch(`/api/library/links/${linkId}/sync`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: '{}',
+    }).then(toJson<{ jobId: number }>),
+
   libraryIgnores: () => fetch('/api/library/ignores').then(toJson<Ignore[]>),
 
   addIgnore: (req: { source?: LibrarySource; external_id?: string; group_key?: string; reason?: string }) =>
@@ -233,12 +563,39 @@ export const api = {
   removeIgnore: (id: string) =>
     fetch(`/api/library/ignores/${id}`, { method: 'DELETE' }).then(toJson<{ ok: boolean }>),
 
-  createRun: (req: { node_id: string; prompt: string; intent?: string }) =>
+  createRun: (req: {
+    node_id: string
+    prompt: string
+    session_id?: string
+    intent?: string
+    context?: {
+      doc_mode?: 'edit' | 'proofread' | 'read'
+      one_shot?: boolean
+      skills?: string[]
+    }
+  }) =>
     fetch('/api/runs', {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify(req),
     }).then(toJson<CreateRunResp>),
+
+  sessions: (nodeId: string) =>
+    fetch(`/api/sessions?node_id=${encodeURIComponent(nodeId)}`).then(toJson<SessionInfo[]>),
+
+  createSession: (nodeId: string, title?: string) =>
+    fetch('/api/sessions', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ node_id: nodeId, title }),
+    }).then(toJson<SessionInfo>),
+
+  sessionMessages: (sessionId: string) =>
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}`).then(
+      toJson<{ session_id: string; messages: SessionMessage[] }>,
+    ),
+
+  skills: () => fetch('/api/skills').then(toJson<{ skills: SkillInfo[] }>),
 
   libraryScan: (sources?: LibrarySource[]) =>
     fetch('/api/library/scan', {

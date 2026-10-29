@@ -114,6 +114,56 @@ impl GameAtlasClient {
         Ok(games.into_iter().map(|g| self.to_entry(g)).collect())
     }
 
+    /// 反哺：Atlas 是正文真源，定稿全文覆盖 GameAtlas 的 wiki，
+    /// 摘要有值时一并覆盖（`docs/library-sync.md` §5.1）。
+    pub async fn push_wiki(
+        &self,
+        public_id: &str,
+        content: &str,
+        summary: Option<&str>,
+    ) -> Result<()> {
+        let mut body = serde_json::json!({
+            "content": content,
+            "change_summary": "反哺自 Atlas",
+        });
+        if let Some(summary) = summary.filter(|s| !s.trim().is_empty()) {
+            body["summary"] = serde_json::Value::String(summary.to_string());
+        }
+        let resp = self
+            .http
+            .put(format!(
+                "{}/api/games/{}/wiki",
+                self.base_url,
+                public_id.trim()
+            ))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| SourceError::Http {
+                src: SRC,
+                message: e.to_string(),
+            })?;
+        let status = resp.status();
+        let env: Envelope<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| SourceError::BadResponse {
+                src: SRC,
+                message: e.to_string(),
+            })?;
+        if !status.is_success() || !env.success {
+            return Err(SourceError::BadResponse {
+                src: SRC,
+                message: if env.error.is_empty() {
+                    format!("反哺失败（HTTP {status}）")
+                } else {
+                    format!("反哺失败：{}", env.error)
+                },
+            });
+        }
+        Ok(())
+    }
+
     fn to_entry(&self, g: Game) -> ManifestEntry {
         let raw = serde_json::to_value(&g).unwrap_or(serde_json::Value::Null);
         let (container_key, container_title, extra) = match &g.series {

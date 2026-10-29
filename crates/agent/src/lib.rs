@@ -6,12 +6,21 @@
 //! **动这一层之前先读 `docs/behavior-notes.md`**（头号风险：v1 调出来的行为知识会丢）。
 
 pub mod client;
+pub mod citations;
 pub mod guard;
+mod harness_tools;
+pub mod ledger;
+pub mod phases;
+pub mod policy;
 pub mod prompt;
 pub mod quality;
+pub mod read_tools;
 pub mod runtime;
+pub mod skeleton;
 pub mod sse;
+pub mod splice;
 pub mod tools;
+pub mod websearch;
 pub mod stream;
 
 use thiserror::Error;

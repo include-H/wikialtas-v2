@@ -1,4 +1,4 @@
-# WikiAtlas v2 · AI 设计
+# Atlas v2 · AI 设计
 
 > 技能体系见 `docs/skills.md`；工具与进程见 `docs/backend.md`；数据落地见 `docs/database.md`。
 > **工具面契约**见 `tools.md`；**提示词与质量门**见 `prompts.md`；**行为知识（写 agent 前必读）**见 `behavior-notes.md`；决策冻结见 `README.md §3`。
@@ -132,7 +132,7 @@ v2 改一处：**技能段只渲染 L0 目录**（不再把正文塞进来）。
 
 | 手段 | 内容 |
 |---|---|
-| **样例回归** | 规则对齐跑 `skills/samples/`（18 篇）；**产出质量以 `/root/Game_Wiki` 的真产出为目标档**（`D3`）——改技能/提示词后必须跑，看是否回退到那档以下 |
+| **样例回归** | 规则对齐跑 `skills/atlas/references/samples/`（18 篇）；**产出质量以 `/root/Game_Wiki` 的真产出为目标档**（`D3`）——改技能/提示词后必须跑，看是否回退到那档以下 |
 | 质量门 | 机械项逐条（§8） |
 | 真跑 | 副本库上跑完整主链：分析 → 建档 → 写 → 定稿 → 反哺 → 失效重挂 |
 | 触发纪律 | 记录 `read_skill` 调用，离线评估"该读的读了没、不该读的没读" |

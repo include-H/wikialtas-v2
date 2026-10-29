@@ -77,7 +77,9 @@ export function parseEpigraph(text: string): Epigraph {
   const lines = text
     .split('\n')
     .map((l) => l.trim())
-    .filter(Boolean)
+    // 围栏标记本身（`:::epigraph` / `:::`）不是内容——不管调用方有没有先剥掉，
+    // 这里再兜一层：它漏出来过一次（题记上方凭空多一行 `:::epigraph`）。
+    .filter((l) => Boolean(l) && !l.startsWith(':::'))
   let author = ''
   const last = lines[lines.length - 1]
   if (last) {

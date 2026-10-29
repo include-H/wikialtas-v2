@@ -121,10 +121,12 @@ export default function Toolbar() {
   return (
     <>
       <div className="feishu-toolbar">
-        {/* AI 动作（v1 的紫色区：问 Altas / 翻译 / 解释） */}
-        <Tb label="问 Altas（把选段挂上）" icon={<ThunderboltOutlined />} onClick={() => ask('', false)} />
-        <Tb label="翻译这段" icon={<TranslationOutlined />} onClick={() => ask('翻译这段', true)} />
-        <Tb label="解释这段" icon={<CommentOutlined />} onClick={() => ask('解释这段', true)} />
+        {/* AI 动作（v1 的紫色区：问 Atlas / 翻译 / 解释） */}
+        <span className="tb-ai">
+          <Tb label="问 Atlas（把选段挂上）" icon={<ThunderboltOutlined />} onClick={() => ask('', false)} />
+          <Tb label="翻译这段" icon={<TranslationOutlined />} onClick={() => ask('翻译这段', true)} />
+          <Tb label="解释这段" icon={<CommentOutlined />} onClick={() => ask('解释这段', true)} />
+        </span>
         <Divider type="vertical" />
 
         {/* 块类型 */}

@@ -99,7 +99,7 @@ where
         Err(e) => return failure(source, format!("记账失败：{e}")),
     };
     match fut.await {
-        Ok(entries) => match store::upsert_manifest(pool, &entries).await {
+        Ok(entries) => match store::upsert_manifest_for_source(pool, source, &entries).await {
             Ok(s) => {
                 let stats = serde_json::to_value(&s).unwrap_or(serde_json::Value::Null);
                 let _ = store::finish_scan_run(pool, run_id, true, &stats, "").await;

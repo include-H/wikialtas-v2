@@ -3,8 +3,8 @@ import { Button, Input, Modal, Tooltip } from 'antd'
 import { EditOutlined } from '@ant-design/icons'
 
 /**
- * 说明块（`archive/v1/VISUAL_SPEC.md` §1.4）：正文开头的 `> 说明：…`，
- * 单独渲染成「浅灰底 + 斜体」的说明条，而不是普通引用块。
+ * 说明块：正文开头的 `> 说明：…`，单独渲染成「左边线 + 次要色文字」的说明条，
+ * 而不是普通引用块（v2 在 v1 的浅灰底/斜体上做了可读性收敛）。
  *
  * 与题记同理：源码（`>` 那几行）不进编辑器，悬停 ✎ 改原文，保存时接回文档头。
  */

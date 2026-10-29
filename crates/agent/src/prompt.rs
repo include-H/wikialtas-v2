@@ -7,26 +7,52 @@
 //!    不手抄进技能文本。
 
 use std::path::{Path, PathBuf};
-use wikiatlas_domain::Medium;
 
 /// 一个技能：`name` + `description`（目录用）+ 正文（`read_skill` 用）。
 #[derive(Debug, Clone)]
 pub struct Skill {
     pub name: String,
     pub description: String,
+    /// UI 分组；缺省归入「其它」。
+    pub group: String,
+    /// 0 = 总入口，1 = 通用子技能，2 = 介质/领域细化。
+    pub layer: u8,
     pub body: String,
+    /// 实际来源文件；`SKILL.md` 或 `references/**/*.md`。
+    pub source: PathBuf,
 }
 
 /// 技能根。默认就是仓库里的 `skills/`（D3 的规则层基准）。
 pub fn skills_root() -> PathBuf {
-    std::env::var("WIKIATLAS_SKILLS_DIR")
+    if let Some(configured) = std::env::var("WIKIATLAS_SKILLS_DIR")
         .ok()
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
-        .unwrap_or_else(|| PathBuf::from("/root/WikiAltas/skills"))
+    {
+        return configured;
+    }
+
+    // 二进制可能从仓库根运行，也可能从 crates/agent 下运行；优先使用编译时项目根，
+    // 再兼容旧部署路径。不能只写死 `/root/Atlas`——当前实际工作区是 WikiAltas。
+    let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .map(|p| p.join("skills"));
+    project_root
+        .into_iter()
+        .chain([
+            PathBuf::from("skills"),
+            PathBuf::from("/root/WikiAltas/skills"),
+            PathBuf::from("/root/Atlas/skills"),
+        ])
+        .find(|p| p.is_dir())
+        .unwrap_or_else(|| PathBuf::from("skills"))
 }
 
-/// 扫 `*/SKILL.md`，解析 front matter（`---` 之间的 `key: value`）。
+/// 只扫描可发现入口：`skills/<name>/SKILL.md`。
+///
+/// 入口正文里的 `references/**/*.md` 不会被当作独立 Skill 暴露给初始目录；
+/// 它们只在入口路由或 `read_skill` 读取时进入上下文。
 pub fn load(root: &Path) -> Vec<Skill> {
     let mut out = vec![];
     let Ok(dir) = std::fs::read_dir(root) else { return out };
@@ -35,32 +61,106 @@ pub fn load(root: &Path) -> Vec<Skill> {
         if !p.is_file() {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&p) else { continue };
-        let (meta, body) = split_front_matter(&text);
-        let name = meta
-            .iter()
-            .find(|(k, _)| k == "name")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_else(|| e.file_name().to_string_lossy().to_string());
-        let description = meta
-            .iter()
-            .find(|(k, _)| k == "description")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
-        // 触发纪律也进目录：模型得知道"何时用 / 何时不用"（`skills.md §3`）
-        let when = meta.iter().find(|(k, _)| k == "when").map(|(_, v)| v.clone());
-        let when_not = meta.iter().find(|(k, _)| k == "when_not").map(|(_, v)| v.clone());
-        let mut desc = description;
-        if let Some(w) = when {
-            desc.push_str(&format!("｜何时用：{w}"));
+        if let Some(skill) = parse_skill_file(&p, Some(&e.file_name().to_string_lossy())) {
+            out.push(skill);
         }
-        if let Some(w) = when_not {
-            desc.push_str(&format!("｜何时不用：{w}"));
-        }
-        out.push(Skill { name, description: desc, body: body.trim().to_string() });
     }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out.sort_by(|a, b| a.layer.cmp(&b.layer).then(a.group.cmp(&b.group)).then(a.name.cmp(&b.name)));
     out
+}
+
+/// 扫描各入口 `references/` 下带 frontmatter 的模块，用于 `list_skills` / `read_skill`。
+pub fn load_modules(root: &Path) -> Vec<Skill> {
+    let mut out = Vec::new();
+    for entry in load(root) {
+        let refs = entry.source.parent().unwrap_or(root).join("references");
+        walk_markdown(&refs, &mut out);
+    }
+    out.sort_by(|a, b| a.layer.cmp(&b.layer).then(a.group.cmp(&b.group)).then(a.name.cmp(&b.name)));
+    out
+}
+
+/// 入口 + references 模块；仅用于显式技能目录/读取工具，不用于 L0 常驻目录。
+pub fn load_all(root: &Path) -> Vec<Skill> {
+    let mut out = load(root);
+    out.extend(load_modules(root));
+    out.sort_by(|a, b| a.layer.cmp(&b.layer).then(a.group.cmp(&b.group)).then(a.name.cmp(&b.name)));
+    out.dedup_by(|a, b| a.name == b.name);
+    out
+}
+
+fn walk_markdown(dir: &Path, out: &mut Vec<Skill>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_markdown(&path, out);
+        } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
+            // references 里的说明/样例不一定有 name；只有带 name 的才是可读模块。
+            if let Some(skill) = parse_skill_file(&path, None) {
+                out.push(skill);
+            }
+        }
+    }
+}
+
+fn parse_skill_file(path: &Path, fallback_name: Option<&str>) -> Option<Skill> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let (meta, body) = split_front_matter(&text);
+    let name = meta
+        .iter()
+        .find(|(k, _)| k == "name")
+        .map(|(_, v)| v.clone())
+        .or_else(|| fallback_name.map(str::to_string))?;
+    let description = meta
+        .iter()
+        .find(|(k, _)| k == "description")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+    let group = meta
+        .iter()
+        .find(|(k, _)| k == "metadata.group" || k == "group")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| "其它".into());
+    let layer = meta
+        .iter()
+        .find(|(k, _)| k == "metadata.layer" || k == "layer")
+        .and_then(|(_, v)| v.parse().ok())
+        .unwrap_or(1);
+    let mut desc = description;
+    if let Some(w) = meta
+        .iter()
+        .find(|(k, _)| k == "metadata.when" || k == "when")
+        .map(|(_, v)| v.clone())
+    {
+        desc.push_str(&format!("｜何时用：{w}"));
+    }
+    if let Some(w) = meta
+        .iter()
+        .find(|(k, _)| k == "metadata.when_not" || k == "when_not")
+        .map(|(_, v)| v.clone())
+    {
+        desc.push_str(&format!("｜何时不用：{w}"));
+    }
+    Some(Skill {
+        name,
+        description: desc,
+        group,
+        layer,
+        body: body.trim().to_string(),
+        source: path.to_path_buf(),
+    })
+}
+
+/// 基准语料目录（实际位于入口的 `references/samples/`）。
+pub fn samples_root() -> PathBuf {
+    let root = skills_root();
+    let nested = root.join("atlas/references/samples");
+    if nested.is_dir() {
+        nested
+    } else {
+        root.join("samples")
+    }
 }
 
 fn split_front_matter(text: &str) -> (Vec<(String, String)>, String) {
@@ -72,16 +172,37 @@ fn split_front_matter(text: &str) -> (Vec<(String, String)>, String) {
             rest = &stripped[end + 4..];
             let mut key = String::new();
             let mut buf = String::new();
+            let mut parent = String::new();
             for line in head.lines() {
-                if let Some((k, v)) = line.split_once(':') {
+                let indent = line.len() - line.trim_start().len();
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = trimmed.split_once(':') {
                     if !key.is_empty() {
                         meta.push((key.clone(), buf.trim().to_string()));
                     }
-                    key = k.trim().to_string();
-                    buf = v.trim().to_string();
+                    if indent == 0 {
+                        parent.clear();
+                        if v.trim().is_empty() {
+                            key.clear();
+                            buf.clear();
+                            parent = k.trim().to_string();
+                        } else {
+                            key = k.trim().to_string();
+                            buf = v.trim().to_string();
+                        }
+                    } else if !parent.is_empty() {
+                        key = format!("{parent}.{}", k.trim());
+                        buf = v.trim().to_string();
+                    } else {
+                        key = k.trim().to_string();
+                        buf = v.trim().to_string();
+                    }
                 } else if !key.is_empty() {
                     buf.push(' ');
-                    buf.push_str(line.trim());
+                    buf.push_str(trimmed);
                 }
             }
             if !key.is_empty() {
@@ -101,13 +222,45 @@ pub fn l0_catalog(skills: &[Skill]) -> String {
         .join("\n")
 }
 
+/// 用户从 UI 显式加载的技能正文。它比模型自动 `read_skill` 的优先级更高，
+/// 但仍保留 L0 目录，让模型知道还可以按需补读其它技能。
+pub fn loaded_skill_prompt(skills: &[Skill], names: &[String]) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut blocks = Vec::new();
+    for name in names {
+        if !seen.insert(name.as_str()) {
+            continue;
+        }
+        let Some(skill) = skills.iter().find(|s| s.name == *name) else {
+            continue;
+        };
+        blocks.push(format!(
+            "### {}\n{}\n\n技能正文共 {} 字。把它当作本轮已加载的操作规范；\
+             用户当前要求优先于技能里的泛化触发描述。",
+            skill.name,
+            skill.body,
+            skill.body.chars().count()
+        ));
+    }
+    if blocks.is_empty() {
+        return String::new();
+    }
+    format!(
+        "## 用户显式加载的技能\n\
+         以下正文已真实载入本轮上下文，不是只给了名字。按用户选择执行；\
+         需要补充其它规范时仍可调用 `read_skill`。\n\n{}",
+        blocks.join("\n")
+    )
+}
+
 /// 读技能正文（`read_skill` 工具的实现）。`section` 给了就只回那一节（`## 标题` 起）。
 pub fn read_skill(root: &Path, name: &str, section: Option<&str>) -> Option<String> {
-    // 防目录穿越：只认 `skills/<name>/SKILL.md`
+    // 防目录穿越：name 只能是元数据里的逻辑名，不能拼路径。
     if name.contains('/') || name.contains("..") {
         return None;
     }
-    let text = std::fs::read_to_string(root.join(name).join("SKILL.md")).ok()?;
+    let skill = load_all(root).into_iter().find(|s| s.name == name)?;
+    let text = std::fs::read_to_string(skill.source).ok()?;
     let (_, body) = split_front_matter(&text);
     let body = body.trim().to_string();
     match section {
@@ -133,53 +286,6 @@ pub fn read_skill(root: &Path, name: &str, section: Option<&str>) -> Option<Stri
     }
 }
 
-/// 第三章 / 第五章的章名（`wiki-skeleton §3` 的三档）。
-fn chapter3_name(medium: Medium) -> &'static str {
-    match medium {
-        Medium::Game => "世界观与背景设定",
-        Medium::Manga | Medium::Book => "作品背景与设定",
-        _ => "故事背景与设定",
-    }
-}
-
-/// 写作工单的系统提示：身份 + 交付物 + **骨架（代码出的那份）** + 质量门判据 + 技能目录。
-///
-/// 质量门判据写在这里**不是**"把机械规则写进提示词"——门还是代码在查；
-/// 这里只是把**靶子**告诉模型（不告诉它靶子，它没法一次写对）。
-pub fn writing_system_prompt(skills: &[Skill], medium: Medium) -> String {
-    let catalog = l0_catalog(skills);
-    let c3 = chapter3_name(medium);
-    let c5 = match medium {
-        Medium::Game => "玩法与结构特色",
-        Medium::Manga | Medium::Book => "创作特色",
-        _ => "叙事与影像特色",
-    };
-    format!(
-        "你是 WikiAtlas 的写作助手，为中文 ACG 资料库写条目。\n\
-         写正文只有一个渠道：调用 write_content 工具（正文放进 content_md，markdown）。\n\n\
-         ## 交付物\n\
-         `# 作品名（介质）Wiki` → `> 说明：…`（整理范围/依据/剧透/检索时间）→ `:::epigraph` 题记 → 编号章节。\n\
-         章节骨架（缺内容的小节删掉、同级重排，**不留空号**）：\n\
-         ## 1. 作品概览\n## 2. 基础信息速览（2.1 基本资料 / 2.2 版本关系 / 2.3 核心卖点 / 2.4 关键词）\n\
-         ## 3. {c3}\n## 4. 剧情概要（完整剧透到结局）\n## 5. {c5}\n## 6. 主要角色与势力（末节写关系简述）\n\
-         ## 7. 评价与历史定位\n## 8. 一句话总结\n## 9. 参考资料\n\
-         （有可指出处的名台词/名场面时才插「名台词与名场面」，后面章号顺延）\n\n\
-         ## 硬规则\n\
-         中文第三人称；每句落到具体对象；事实/推断/评价分开；查不到写 `待核实`（只这三个字），不编造。\n\
-         禁套话（据说 / 广受好评 / 神作 / 天花板 / 不容错过）。长度服从信息量，按基准密度写（约 7000–12000 汉字）。\n\
-         题记块**内不许有空行**（逐行交替）。\n\n\
-         ## 工作方式\n\
-         1) 先 read_skill 读规范（至少 wiki-write / wiki-skeleton / 该介质那份），按需读 epigraph / fact-check / prose-style。\n\
-         2) **联网检索（必做）**：用 web_search 查首发日期与平台、版本关系、销量/评分、设定与剧情的可核实事实、题记素材；\n\
-            媒体库里的年份常是「该平台再发行年」，**首发日期一律以检索为准**；查不到就写 `待核实`。\n\
-         3) 再调 write_content 落整篇。\n\
-         **检索预算：最多 4 次 web_search**，够用就停——资料是用来写的，不是用来囤的。\
-         检索完必须调 write_content 把整篇落下来（不要只汇报你查到了什么）。\
-         4) 宿主会用代码质量门查你的产出；不过会把问题回给你一次，照着改。\n\n\
-         ## 技能目录（read_skill 取正文）\n{catalog}"
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,13 +293,20 @@ mod tests {
     #[test]
     fn 真技能根能加载出目录() {
         let skills = load(&skills_root());
-        assert!(skills.len() >= 10, "技能太少了：{}", skills.len());
+        assert_eq!(skills.len(), 1, "初始发现应只暴露总入口");
         let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"wiki-write"));
-        assert!(names.contains(&"wiki-skeleton"));
-        assert!(names.contains(&"media-game"));
+        assert!(names.contains(&"atlas"));
         // 目录里要有"何时用/何时不用"
         assert!(skills[0].description.contains("何时用"));
+        assert_eq!(skills[0].name, "atlas");
+        assert_eq!(skills[0].layer, 0);
+        assert_eq!(skills[0].group, "总入口");
+
+        let modules = load_modules(&skills_root());
+        let module_names: Vec<&str> = modules.iter().map(|s| s.name.as_str()).collect();
+        assert!(module_names.contains(&"wiki-write"));
+        assert!(module_names.contains(&"wiki-skeleton"));
+        assert!(module_names.contains(&"media-game"));
     }
 
     #[test]
@@ -214,12 +327,11 @@ mod tests {
     }
 
     #[test]
-    fn 系统提示带上骨架与技能目录() {
+    fn 显式加载会把技能正文真正拼进上下文() {
         let skills = load(&skills_root());
-        let p = writing_system_prompt(&skills, Medium::Game);
-        assert!(p.contains("玩法与结构特色"), "游戏介质要用游戏的章名");
-        assert!(p.contains("世界观与背景设定"));
-        assert!(p.contains("wiki-write"), "要有技能目录");
-        assert!(p.contains("待核实"));
+        let prompt = loaded_skill_prompt(&skills, &["atlas".into()]);
+        assert!(prompt.contains("用户显式加载的技能"));
+        assert!(prompt.contains("# Atlas Skill 路由"));
+        assert!(prompt.contains("技能正文共"));
     }
 }

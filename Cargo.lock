@@ -2390,6 +2390,7 @@ name = "wikiatlas-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "reqwest",
  "serde",
@@ -2414,6 +2415,7 @@ dependencies = [
  "futures-core",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tokio",
  "tower-http",
@@ -2437,10 +2439,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "wikiatlas-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "uuid",
+ "wikiatlas-domain",
+ "wikiatlas-store",
+]
+
+[[package]]
 name = "wikiatlas-sources"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "reqwest",
  "serde",
@@ -2477,6 +2493,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "wikiatlas-agent",
  "wikiatlas-domain",
  "wikiatlas-sources",

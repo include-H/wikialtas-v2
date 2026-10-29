@@ -11,8 +11,13 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use wikiatlas_domain as domain;
 
-pub use crate::link::{add_ignore, build_doc, list_ignores, remove_ignore, unlink, BuildDoc, BuiltDoc};
-pub use crate::manifest::{list_manifest, upsert_manifest, ManifestFilter, ManifestStats};
+pub use crate::link::{
+    add_ignore, attach_existing, build_doc, list_ignores, remove_ignore, unlink, BuildDoc,
+    BuiltDoc,
+};
+pub use crate::manifest::{
+    list_manifest, upsert_manifest, upsert_manifest_for_source, ManifestFilter, ManifestStats,
+};
 
 const ALL_COLS: &str = "m.source, m.external_id, m.title, m.subtitle, m.aliases, m.year, \
                         m.kind, m.format, m.cover_url, m.url, m.container_key, m.container_title, \

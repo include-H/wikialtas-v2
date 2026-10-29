@@ -1,4 +1,4 @@
-# WikiAtlas v2 · 旧前端迁移谱系
+# Atlas v2 · 旧前端迁移谱系
 
 > 输入：`archive/v1/frontend/`（Semi Design + BlockNote 的完整应用，**17,530 行 / 70 文件**）。
 > 目标：`frontend/`（React 19 + Vite + TS strict + **Ant Design v6** + **@ant-design/x** + TanStack Query + Zustand + Milkdown），视觉照 `archive/v1/VISUAL_SPEC.md`、布局照 `docs/frontend.md` §2。
@@ -13,7 +13,7 @@ v2 前端当前只落了**骨架 + 文档核心**（约 2,300 行）：
 
 | 已落 | 文件 | 说明 |
 |---|---|---|
-| 三面板外壳 | `App.tsx` | 左树 / 中文档 / 右 Altas，断点收起 |
+| 三面板外壳 | `App.tsx` | 左树 / 中文档 / 右 Atlas，断点收起 |
 | 树 | `panels/TreePanel.tsx` | 扁平列表拼树 + 本地过滤 + 新建节点 |
 | 文档 | `panels/DocPanel.tsx` | 草稿防抖 / 定稿 / 版本冲突横幅 / 只读态 |
 | 编辑器 | `editor/*` | Milkdown + 斜杠菜单 + 悬浮工具条 |
@@ -68,7 +68,7 @@ v2 前端当前只落了**骨架 + 文档核心**（约 2,300 行）：
 `AccountCard` · `LibraryCard` · `LlmCard` · `RoleEditorModal` · `SearchCard` · `StatusCard` · `WorkCards` · `common` —— 全部 ⬜。
 
 ### 1.6 编辑器 editor/
-`BlockMarkdownEditor` · `DocActions` · `EpigraphBlock` · `FeishuToolbar` · `MarkdownEditor` · `MarkdownPreview` · `PendingRevisions` → v2 `editor/*` + `panels/DocPanel` + `panels/PendingRevisions`。🟡
+`BlockMarkdownEditor` · `DocActions` · `EpigraphBlock` · `FeishuToolbar` · `MarkdownEditor` · `MarkdownPreview` · `PendingRevisions` → v2 `editor/*` + `panels/DocPanel`；`PendingRevisions` 不再迁（**D74**：接受 = 定稿、拒绝 = 丢弃草稿）。✅
 
 ### 1.7 纯逻辑 lib/
 `api` · `store` · `liveDraft` · `mdOutline` · `blockMd` · `docMarkdown` · `epigraph`(✅) · `tree` · `theme` · `useLibraryPool` · `useWorkLibrary` · `useLiveRefresh` · `poolBatch` · `poolSections` · `mediaTags` · `settingsForm` · `useEscapeClose` · `intent` · `sessionPointer` · `routes`。🟡
@@ -82,7 +82,7 @@ v2 前端当前只落了**骨架 + 文档核心**（约 2,300 行）：
 | **B0 基座** | react-router 路由表 · AppShell/SideNav/TopBar/SearchModal · RightSidebar 标签壳 · FolderPane · WorkDialogs · store 扩容 · api 扩容 | `/api/auth/me` `/api/search` |
 | **B1 文档核心** | Home · WorkView · DocView · Outline · 题记 · 修订 / 版本回滚 / diff · 文件夹 | 已有 + `/api/works/:id/*` |
 | **B2 媒体库** | LibraryPool + library/* 全部 · RelatedMediaPanel | `/api/library/*` |
-| **B3 工单 + Altas** | RunList + run/* 全部 + `ai/transport`（response.* → X runtime）+ @ant-design/x 组件 | `/api/runs` `/api/ai/*` SSE |
+| **B3 工单 + Atlas** | RunList + run/* 全部 + `ai/transport`（response.* → X runtime）+ @ant-design/x 组件 | `/api/runs` `/api/ai/*` SSE |
 | **B4 设置 + 登录** | SettingsView + settings/* · LoginView | `/api/settings` `/api/auth/*` |
 | **B5 待写正文** | StubQueue + StubTable | `/api/list-works?hasContent=false` |
 

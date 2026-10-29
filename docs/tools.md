@@ -1,4 +1,4 @@
-# WikiAtlas v2 · 工具面契约
+# Atlas v2 · 工具面契约
 
 > **工具是馆员的"手"。这份文档是工具清单、schema、能力面与护栏的唯一契约。**
 > **关联**：AI 能力面见 `ai.md §6`；护栏的来龙去脉见 `behavior-notes.md §3 §4`；提示词分段见 `prompts.md §1`。
@@ -40,10 +40,11 @@ pub trait Tool {
 | `list_library` | 列媒体库清单 / 池子 / 某条目的链与反哺状态 |
 | `list_skills` | 列技能 L0 目录（name + description） |
 | `read_skill` | 按需读技能正文（防路径穿越；大文件截断要说话） |
-| `read_source` | 读工作区里的参考文件（如 `skills/samples/` 某节）；**必须写明只读哪一节** |
-| `search_web` | 联网检索（**默认关**，有预算） |
+| `read_source` | 读工作区里的参考文件（如 `skills/atlas/references/samples/` 某节）；**必须写明只读哪一节** |
+| `search_web` | **聚合检索**（Exa + Brave + DeepSeek；默认关，有预算） |
 | `fetch_url` | 读允许的搜索结果页 |
 | `search_sessions` / `read_session` | 跨会话回忆；读到的内容一律当**不可信背景** |
+| `list_relation_types` | 关系冻结词典与方向标签 |
 
 ### 1.2 写工具（Write；直接生效，进 revision / 写事件）
 
@@ -129,6 +130,25 @@ pub trait Tool {
 3. **提示词段自动跟随工具面**：`text` 是函数，**工具不在场就返回空串**（`answer` 意图读不到写工具的规矩）。
 4. **别按猜测锁工具**：猜错了（错字 / 纠偏 / 问句暗示干活）也要能干。护栏放在**动作层**（修订可回滚 / 写工具自带空写、残稿拒绝）与**提示**。
 
+> **当前实现**：编辑器三态是 `edit / proofread / read`。
+> `read` / `one_shot=true` 会从模型 schema 剥掉全部写工具；`policy::check` 再在动作层拒绝一次。
+> `proofread` 保留写工具，但提示词要求默认只报告事实、一致性和格式问题，用户明确说“修/改”才落修改。
+> 不再存在旧的“问答 / 撰写”显式模式开关。
+
+### 3.1 聚合网页搜索
+
+`search_web` 是聚合工具，不是单厂商转发：
+
+- **始终在工具面里**：不再有会话级联网开关；模型按任务需要直接调用。
+- provider：Exa `POST /search` · Brave `GET /res/v1/web/search` · DeepSeek `POST /v1/tools/search`；
+- 三家并行，统一为 `{title,url,snippet,summary,content,providers,score}`；
+- canonical URL 去重，RRF 融合排名；单 provider 失败只记录错误，其他结果照常返回；
+- 默认融合 20 条（调用方最多 50）；Exa / DeepSeek 自动请求 20–100 条候选，Brave 最多 20；
+- `search.providers` 控制启用项；密钥为 `exa.api_key` / `brave.api_key` / `deepseek.api_key`，DeepSeek 未单独配置时可复用 `llm.api_key`；
+- `fetch_url` 优先 DeepSeek Fetch，失败回退本地 HTML 抽取。
+
+不做真正无限预算：默认检索 24 次 / 抓取 16 页 / 48 轮，可由设置页修改；覆盖率达标会提前收工。
+
 ---
 
 ## 4. 批量工具契约（波次模式）
@@ -168,4 +188,4 @@ pub trait Tool {
 | `upsert_work` / `write_content` / `patch_section` / `edit` / `upsert_relation` / `attach_library_link` / `create_doc` / `sync_library` | 写面保留 |
 | `answer` | 保留（+ `ask_user` / `finish`） |
 | ——（v1 缺） | **新增** `detach_link` / `relink` / `rebuild_doc` / `detach_relation` / `list_skills` / `archive_node` / `patch_sections` / `upsert_relations` |
-| 工具名/描述散落 | schema 由 `schemars` 从类型生成 + 一致性测试守 |
+| 工具名/描述散落 | 当前统一在 `harness_tools` + 工具清单测试；后续可把 schema 生成器接上（不阻塞行为） |

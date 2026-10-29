@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { UnorderedListOutlined } from '@ant-design/icons'
 
 /**
  * 文档大纲栏（v1 的 `lib/mdOutline.ts` + `OutlinePane`）：从正文的 `##` / `###` 解析出
@@ -94,9 +95,11 @@ export default function Outline({ bodyMd }: { bodyMd: string }) {
   if (items.length === 0) {
     return (
       <aside className="outline">
-        <div className="outline-title">大纲</div>
-        <div style={{ padding: '0 8px', fontSize: 12, color: 'var(--ant-color-text-quaternary)' }}>
-          还没有章节。写上 `## 1. 作品概览` 这种标题就会出现目录。
+        <div className="outline-title">文档大纲</div>
+        <div className="outline-empty">
+          <UnorderedListOutlined />
+          <span>还没有章节</span>
+          <small>写上 `## 1. 作品概览` 后，目录会自动出现。</small>
         </div>
       </aside>
     )
@@ -104,7 +107,7 @@ export default function Outline({ bodyMd }: { bodyMd: string }) {
 
   return (
     <aside className="outline">
-      <div className="outline-title">大纲</div>
+      <div className="outline-title">文档大纲</div>
       {items.map((it, i) => (
         <button
           key={`${it.level}-${i}-${it.text}`}

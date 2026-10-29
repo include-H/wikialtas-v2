@@ -159,6 +159,44 @@ impl KomgaClient {
         Ok(out)
     }
 
+    /// 反哺摘要。Komga 的 external_id 可能是系列，也可能是抽屉系列拆出的单册；
+    /// 先按系列 PATCH，404 再按单册 PATCH（V1 已跑通的两条路径）。
+    pub async fn push_summary(&self, external_id: &str, summary: &str) -> Result<()> {
+        let body = serde_json::json!({ "summary": summary });
+        for path in [
+            format!("/api/v1/series/{external_id}/metadata"),
+            format!("/api/v1/books/{external_id}/metadata"),
+        ] {
+            let resp = self
+                .http
+                .patch(format!("{}{}", self.base_url, path))
+                .header("X-API-Key", &self.api_key)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| SourceError::Http {
+                    src: SRC,
+                    message: e.to_string(),
+                })?;
+            if resp.status().is_success() {
+                return Ok(());
+            }
+            if resp.status() != reqwest::StatusCode::NOT_FOUND {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                let text: String = text.chars().take(120).collect();
+                return Err(SourceError::BadResponse {
+                    src: SRC,
+                    message: format!("反哺失败（HTTP {status}）{text}"),
+                });
+            }
+        }
+        Err(SourceError::BadResponse {
+            src: SRC,
+            message: "Komga 里找不到这条链指向的系列或单册".into(),
+        })
+    }
+
     fn entries_for_series(&self, sr: Series, books: Vec<Book>) -> Vec<ManifestEntry> {
         let novel = books.iter().filter(|b| b.media.media_type.contains("epub")).count() * 2
             > books.len();

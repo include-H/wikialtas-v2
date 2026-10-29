@@ -1,4 +1,4 @@
-# WikiAtlas v2 · 数据库设计（PostgreSQL）
+# Atlas v2 · 数据库设计（PostgreSQL）
 
 > 功能见 `docs/features.md`；后端见 `docs/backend.md`；接口见 `docs/api.md`；媒体库表见 `docs/library-sync.md`。决策冻结见 `README.md §3`。
 
@@ -164,7 +164,7 @@ CREATE TABLE judge_cache (
 - **自指** → DB `CHECK (from_id <> to_id)`；
 - **悬空**（指向不存在的对象）→ 外键；
 - **成环** → 应用层在写路径上校验（跨 type 的环可能合法，不做 DB 约束）；
-- **「不要用模糊的『相关』代替具体关系」「不要为了让关系图好看而猜关系」「别名只收指向本对象的名称」** → 判断类，在 `skills/index-fields` 里。
+- **「不要用模糊的『相关』代替具体关系」「不要为了让关系图好看而猜关系」「别名只收指向本对象的名称」** → 判断类，在 `skills/atlas/references/tasks/index-fields.md` 里。
 
 其余表沿用 v1 已验证的形状（**不重设计**）：`runs` / `run_events` / `sessions` / `session_messages`（append-only 的日志是 v1 设计得最好的一块，直接重用）；v1 的 `settings` 一坨 KV 拆成 `app_settings`（UI/行为配置，jsonb）· `secrets`（密钥，独立表）· `library_manifest`（清单进表）· `library_ignores`（忽略分单条/整组）。
 

@@ -35,7 +35,10 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 json!({ "error": "duplicated", "message": what }),
             ),
-            E::Domain(D::Conflict { base_ver, current_ver }) => (
+            E::Domain(D::Conflict {
+                base_ver,
+                current_ver,
+            }) => (
                 StatusCode::CONFLICT,
                 json!({
                     "error": "version_conflict",

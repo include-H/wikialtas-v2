@@ -24,7 +24,11 @@ impl CreateNodeReq {
         Ok(domain::NewNode {
             parent_id: self.parent_id,
             kind: domain::NodeKind::parse(&self.kind)?,
-            medium: self.medium.as_deref().map(domain::Medium::parse).transpose()?,
+            medium: self
+                .medium
+                .as_deref()
+                .map(domain::Medium::parse)
+                .transpose()?,
             title: self.title,
             aliases: self.aliases,
             tags: self.tags,
@@ -51,6 +55,8 @@ pub struct CommitReq {
 pub struct CommitResp {
     pub ver: i32,
     pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_job_id: Option<i64>,
 }
 
 /// 手动扫描的入参（缺省 = 扫全部已配置的源）。
@@ -78,7 +84,11 @@ impl BuildLinkReq {
         Ok(wikiatlas_store::library::BuildDoc {
             source: domain::library::Source::parse(&self.source)?,
             external_id: self.external_id,
-            role: self.role.as_deref().map(domain::library::LinkRole::parse).transpose()?,
+            role: self
+                .role
+                .as_deref()
+                .map(domain::library::LinkRole::parse)
+                .transpose()?,
             parent_id: self.parent_id,
             linked_by: domain::library::LinkedBy::Pool,
         })
@@ -106,13 +116,126 @@ pub struct IgnoreReq {
     pub reason: String,
 }
 
+/// 重挂：把失效链换成同源另一条当前清单条目。
+#[derive(Debug, Deserialize)]
+pub struct RelinkReq {
+    pub external_id: String,
+}
+
+/// 某节点的关系查询。
+#[derive(Debug, Deserialize)]
+pub struct RelationQuery {
+    pub node_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRelationReq {
+    pub from_id: Uuid,
+    pub to_id: Uuid,
+    pub r#type: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SynthesisReq {
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+    pub title: String,
+    pub doc_type: String,
+    #[serde(default)]
+    pub work_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReviewQuery {
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSuggestionReq {
+    pub kind: String,
+    #[serde(default)]
+    pub node_id: Option<Uuid>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default)]
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct DecisionReq {
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FindingQuery {
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    #[serde(default)]
+    pub q: String,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveAnswerReq {
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+    pub title: String,
+    pub body_md: String,
+    #[serde(default)]
+    pub ref_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginReq {
+    pub password: String,
+}
+
 /// 起一条工单（M3：只做「照这段话说，去写这个节点的正文」）。
 #[derive(Debug, Deserialize)]
 pub struct CreateRunReq {
     pub node_id: Uuid,
     pub prompt: String,
     #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
     pub intent: Option<String>,
+    #[serde(default)]
+    pub context: RunContextReq,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSessionReq {
+    pub node_id: Uuid,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SessionQuery {
+    pub node_id: Uuid,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct SessionMessageQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct RunContextReq {
+    #[serde(default)]
+    pub doc_mode: Option<String>,
+    #[serde(default)]
+    pub one_shot: bool,
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 /// SSE 续传的游标。
@@ -135,7 +258,11 @@ pub struct LibraryQuery {
 impl LibraryQuery {
     pub fn into_filter(self) -> Result<wikiatlas_store::library::ManifestFilter, domain::Error> {
         Ok(wikiatlas_store::library::ManifestFilter {
-            source: self.source.as_deref().map(domain::library::Source::parse).transpose()?,
+            source: self
+                .source
+                .as_deref()
+                .map(domain::library::Source::parse)
+                .transpose()?,
             container_key: self.container,
             has_doc: self.has_doc,
             include_missing: self.include_missing,

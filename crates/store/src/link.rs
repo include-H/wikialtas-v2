@@ -160,6 +160,50 @@ pub async fn build_doc(pool: &PgPool, req: &BuildDoc) -> Result<BuiltDoc> {
     Ok(BuiltDoc { node, link_id, reused })
 }
 
+/// 把清单条目挂到**已有节点**（不新建文档）。身份唯一由 DB 兜底。
+pub async fn attach_existing(
+    pool: &PgPool,
+    node_id: Uuid,
+    source: Source,
+    external_id: &str,
+    role: LinkRole,
+    linked_by: LinkedBy,
+) -> Result<Uuid> {
+    let mut tx = pool.begin().await?;
+    nodes::get_in_tx(&mut tx, node_id).await?;
+    let entry: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT title, url FROM library_manifest WHERE source = $1 AND external_id = $2",
+    )
+    .bind(source.as_str())
+    .bind(external_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let (title, url) = entry.ok_or_else(|| {
+        Error::Domain(domain::Error::NotFound(
+            "清单里没有这个条目（先扫描媒体库）".into(),
+        ))
+    })?;
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO library_links \
+           (id, node_id, source, external_id, url, title_hint, role, linked_by) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(id)
+    .bind(node_id)
+    .bind(source.as_str())
+    .bind(external_id)
+    .bind(url)
+    .bind(title)
+    .bind(role.as_str())
+    .bind(linked_by.as_str())
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| map_unique(e, "这个条目已经挂过链"))?;
+    tx.commit().await?;
+    Ok(id)
+}
+
 /// 找同名系列节点；没有就建一个（顶级、不带介质）。
 async fn ensure_series(
     tx: &mut sqlx::PgConnection,

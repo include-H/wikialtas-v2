@@ -1,4 +1,4 @@
-# WikiAtlas v2 · API 与事件契约
+# Atlas v2 · API 与事件契约
 
 > **这是后端与前端之间唯一的接口契约。** 前端 `src/api.ts` 的 DTO 必须与本文一致；事件类型由后端生成给前端，禁止手抄。
 > **关联**：工具面（AI 用的）见 `tools.md`；数据库见 `database.md`；前端状态模型见 `frontend.md §4 §5`。
@@ -48,7 +48,7 @@
 | GET | `/api/nodes/{id}` | 节点 + 定稿 + 草稿（`NodeContent`） | ✅ |
 | POST | `/api/nodes` | 建节点（走领域校验：work 必带介质、doc 不带） | ✅ |
 | PATCH | `/api/nodes/{id}` | 改标题/别名/标签/父/状态/可见性 | ⬜ |
-| POST | `/api/nodes/{id}/archive` | 归档（默认删除策略） | ⬜ |
+| POST | `/api/nodes/{id}/archive` | 归档整棵子树（默认删除策略，数据保留） | ✅ |
 | POST | `/api/nodes/{id}/move` | 移动（父/排序） | ⬜ |
 
 ### 1.2 内容（人的写路径；AI 复用同一条）
@@ -56,9 +56,10 @@
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
 | PUT | `/api/nodes/{id}/draft` | 存草稿（覆盖写，带 `lease_until`） | ✅ |
+| DELETE | `/api/nodes/{id}/draft` | 丢弃草稿（= 拒绝 AI 修订；回到最近定稿，不产生版本；幂等） | ✅ D74 |
 | POST | `/api/nodes/{id}/commit` | 定稿（乐观并发；不符 → 409 + `current_ver`） | ✅ |
 | GET | `/api/nodes/{id}/versions` | 快照列表 | ✅ |
-| GET | `/api/nodes/{id}/versions/{ver}` | 单版快照（diff 用） | ⬜ |
+| GET | `/api/nodes/{id}/versions/{ver}` | 单版快照（diff 用） | ✅ M4 |
 | POST | `/api/nodes/{id}/revert` | 回滚到某版（= 提交一个新版本） | ⬜ |
 
 > **人与模型共用同一条写路径**：`content_drafts`（防抖/节流覆盖写）→ `commit` 事务（`contents` ver+1 + `content_versions` 快照 + `write_events` + 清草稿）。
@@ -67,10 +68,12 @@
 
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
-| GET | `/api/relations?node_id=` | 某节点的关系（出边 + 入边，带方向标签） | ⬜ |
-| POST | `/api/relations` | 建关系（type 必须在 `relation_types`；成环应用层校验） | ⬜ |
-| DELETE | `/api/relations/{id}` | 删关系 | ⬜ |
-| GET | `/api/relation-types` | 关系类型契约表（UI 渲染方向标签用） | ⬜ |
+| GET | `/api/relations?node_id=` | 某节点的关系（出边 + 入边，带方向标签） | ✅ M5 |
+| POST | `/api/relations` | 建关系（type 必须在 `relation_types`；同类型成环拒绝） | ✅ M5 |
+| DELETE | `/api/relations/{id}` | 删关系 | ✅ M5 |
+| GET | `/api/relation-types` | 关系类型契约表（UI 渲染方向标签用） | ✅ M5 |
+| GET/POST | `/api/synthesis` | 综合页列表 / 建综合页（doc + refs + references 边） | ✅ M5 |
+| POST | `/api/nodes/{id}/index` | 宿主按系列/宇宙子树重算索引页 | ✅ M5 |
 
 ### 1.4 媒体库
 
@@ -81,12 +84,12 @@
 | GET | `/api/library/pool` | **池子**：无文档的库条目 | ✅ M1 |
 | POST | `/api/library/links` | 建档 / 挂链（**原子**：节点 + 链同事务） | ✅ M2 |
 | DELETE | `/api/library/links/{id}` | 解链（保留文档） | ✅ M2 |
-| POST | `/api/library/links/{id}/relink` | 重挂（旧链 `replaced`） | ⬜ |
-| GET | `/api/library/links/{id}/relink-candidates` | 宿主建议的候选（归一化 + trigram） | ⬜ |
+| POST | `/api/library/links/{id}/relink` | 重挂（旧链 `replaced`） | ✅ M7 |
+| GET | `/api/library/links/{id}/relink-candidates` | 宿主建议的候选（归一化 + trigram） | ✅ M7 |
 | POST | `/api/library/ignores` | 忽略（单条 / 整组） | ✅ M2 |
 | GET | `/api/library/ignores` | 已忽略列表（可恢复） | ✅ M2 |
 | DELETE | `/api/library/ignores/{id}` | 恢复被忽略的条目 / 组 | ✅ M2 |
-| POST | `/api/library/links/{id}/sync` | 手动重推反哺 | ⬜ |
+| POST | `/api/library/links/{id}/sync` | 手动重推反哺 | ✅ M7 |
 | GET | `/api/library/suggestions` | 该条目的库建议（含 reject 理由） | ⬜ |
 | GET | `/api/library/status` | 池子页顶部：哪些源配好了（**只有布尔，没有值**）+ 队列深度 | ✅ M1 |
 | GET | `/api/library/scan-runs` | 最近扫描记账（每源一行：ok / 新增/变更/消失计数） | ✅ M1 |
@@ -95,16 +98,12 @@
 
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
-| POST | `/api/runs` | 建工单 + 入队（跑活在 worker），返回 `{runId, jobId}` | ✅ M3 |
+| POST | `/api/runs` | 建工单 + 入队（跑活在 worker），返回 `{runId, jobId, sessionId}` | ✅ |
 | GET | `/api/runs/{id}/events` | SSE：`run_events` 按 seq 推；`?after=` 续传；run 终态即收流 | ✅ M3 |
-
-
-| 方法 | 路径 | 说明 | 状态 |
-|---|---|---|---|
-| GET | `/api/sessions` | 会话列表（一个文档 = 一个默认会话） | ⬜ |
-| POST | `/api/sessions` | 新会话（挂在节点 / 资料 / 全局） | ⬜ |
-| GET | `/api/sessions/{id}` | 会话详情 + 消息投影 | ⬜ |
-| POST | `/api/runs` | 发起工单（`CreateRunBody`，见 §2） | ⬜ |
+| GET | `/api/sessions` | 会话列表（一个文档 = 一个默认会话） | ✅ |
+| POST | `/api/sessions` | 新建会话 | ✅ |
+| GET | `/api/sessions/{id}` | 会话详情 + 消息投影 | ✅ |
+| GET | `/api/skills` | 从项目 `skills/*/SKILL.md` 列出可发现入口（不含 references 模块） | ✅ |
 | GET | `/api/runs/{id}` | 工单状态 | ⬜ |
 | POST | `/api/runs/{id}/resume` | 续跑 | ⬜ |
 | POST | `/api/runs/{id}/cancel` | 取消（置 `cancel_requested`，worker 在工具边界检查） | ⬜ |
@@ -114,22 +113,24 @@
 
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
-| GET | `/api/suggestions` | Review 队列（建档/关联/合并/研究/忽略） | ⬜ |
-| POST | `/api/suggestions/{id}/accept` | 接受（执行对应动作） | ⬜ |
-| POST | `/api/suggestions/{id}/reject` | 拒绝（可带理由，回喂） | ⬜ |
-| GET | `/api/health-findings` | 体检结果（确定性 + 结构洞察） | ⬜ |
-| POST | `/api/health-findings/run` | 跑一次体检（入队 audit job） | ⬜ |
-| GET | `/api/search?q=` | 检索（标题 + 正文 + 别名；bigram/trigram） | ⬜ |
+| GET/POST | `/api/suggestions` | Review 队列 / 内部入队建议 | ✅ M6 |
+| POST | `/api/suggestions/{id}/accept` | 接受（create/link/ignore 直接执行） | ✅ M6 |
+| POST | `/api/suggestions/{id}/reject` | 拒绝（理由保留，回喂后续判断） | ✅ M6 |
+| GET | `/api/health-findings` | 确定性体检结果 | ✅ M6 |
+| POST | `/api/health-findings/run` | 跑一次体检（入队 audit job） | ✅ M6 |
+| GET | `/api/search?q=` | 检索（标题 + 正文 + 别名；bigram/trigram） | ✅ M8 |
+| POST | `/api/answers` | 好回答存成资料（doc + refs，不改作品正文） | ✅ M8 |
 
 ### 1.7 设置 / 运维
 
 | 方法 | 路径 | 说明 | 状态 |
 |---|---|---|---|
-| GET/PUT | `/api/settings` | 行为配置（模型路由 / 窗口 / 扫描周期 / 三源地址） | ⬜ |
-| PUT | `/api/secrets` | 密钥（独立表，写入不回显） | ⬜ |
-| POST | `/api/login` / `POST /api/logout` | 访问密码登录（HttpOnly 会话 Cookie） | ⬜ |
-| GET | `/api/usage` | 用量与成本汇总 | ⬜ |
-| POST | `/api/export` / `POST /api/import` | 整树导出/导入 | ⬜ |
+| GET/PUT | `/api/settings` | 非密钥配置（模型 / 窗口 / 扫描周期 / 单价） | ✅ M9 |
+| PUT | `/api/secrets` | 密钥（独立表，写入不回显） | ✅ M9 |
+| GET | `/api/auth` | 是否配置访问密码 / 当前会话是否已登录 | ✅ M9 |
+| POST | `/api/login` / `/api/logout` | 可选单密码登录（HttpOnly 会话 Cookie） | ✅ M9 |
+| GET | `/api/usage` | 用量与成本汇总 | ✅ M9 |
+| GET | `/api/export` / `POST /api/import` | 整树 JSON 导出 / 空树导入 | ✅ M9 |
 
 ---
 
@@ -156,19 +157,18 @@ interface CommitReq     { base_ver: number; body_md: string; summary?: string }
 interface CommitResp    { ver: number; updated_at: string }
 interface Version       { ver: number; created_at: string; summary: string }
 
-// —— 工单（⬜ 规划）——
+// —— 工单 ——
 interface CreateRunBody {
-  session_id?: string           // 缺省则新建
-  node_id?: string              // 目标节点（写正文/修订/问答）
-  goal: string                  // 用户那句话
-  intent: 'create_wiki' | 'continue_wiki' | 'rewrite_section'
-        | 'write_doc' | 'organize_tree' | 'answer' | 'sync_library'
-  context?: RunContext          // 三件套之一，见 tools.md：docMode / oneShot / 选段 / @引用
-  model?: string                // 覆盖默认（可选）
+  session_id?: string
+  node_id: string
+  prompt: string
+  intent?: string
+  context?: RunContext
 }
-interface RunContext {          // 显式字段，别铺平 Record（v1 的 @ 引用就这样坏过）
-  doc_mode?: 'edit' | 'read'
+interface RunContext {
+  doc_mode?: 'edit' | 'proofread' | 'read'
   one_shot?: boolean
+  skills?: string[]             // 用户显式加载的 SKILL.md 名称
   selection?: { text: string; prompt: string }
   mentions?: string[]           // 引用的 node_id
   attachments?: string[]

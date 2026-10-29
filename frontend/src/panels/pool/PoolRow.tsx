@@ -1,5 +1,5 @@
 import { Button, Dropdown, Tag, Tooltip } from 'antd'
-import { DownOutlined } from '@ant-design/icons'
+import { DownOutlined, PictureOutlined } from '@ant-design/icons'
 
 import type { PoolEntry } from '../../api'
 import { useUi } from '../../store'
@@ -29,7 +29,13 @@ export default function PoolRow({
   return (
     <div className="pool-row">
       <div className="pool-cover">
-        {e.cover_url ? <img src={e.cover_url} alt="" loading="lazy" /> : <span>{e.title.slice(0, 1)}</span>}
+        {e.cover_url ? (
+          <img src={e.cover_url} alt="" loading="lazy" />
+        ) : (
+          <span className="pool-cover-fallback">
+            <PictureOutlined />
+          </span>
+        )}
       </div>
       <div className="pool-row-main">
         <div

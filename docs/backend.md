@@ -1,4 +1,4 @@
-# WikiAtlas v2 · 后端设计（Rust）
+# Atlas v2 · 后端设计（Rust）
 
 > 功能清单见 `docs/features.md`，数据层见 `docs/database.md`，接口见 `docs/api.md`，工具/提示词见 `docs/tools.md` / `docs/prompts.md`，队列与 agent 的行为证据见 `docs/behavior-notes.md`。
 > ✅ **Rust 已确认**（决策 D38）：llm_wiki 的 agent core 本身就是 Rust（`runtime.rs` 5816 行 / `tools.rs` 3888 行，含工具循环 / 流式 / skills），可行性已被验证。§9 保留**退出条件**（尖刺 B 做完若"改一次 prompt 往返明显慢于 v1"才回 Go），但**不再是默认路径**。
@@ -99,7 +99,7 @@ crates/
 - 触发：**定稿事件**（`write_events` 里的定稿行）→ 入队 `sync` job。
 - 每个 (链 × 目标) 一行 `sync_targets`：`synced_ver / status / message / synced_at`。
 - 目标能力不同：GameAtlas 写 **正文 + 摘要**（`PUT /api/games/{id}/wiki`）；Komga 写 **metadata 摘要**（`PATCH`）；**Emby 只读，不进队**。
-- 语义：**WikiAtlas 独占这些字段，以最新定稿覆盖**；不合并、不做双向 diff。
+- 语义：**Atlas 独占这些字段，以最新定稿覆盖**；不合并、不做双向 diff。
 - 失败可见可重试；重推是幂等的（同 `synced_ver` 不重复推）。
 
 ## 8. 媒体库与链的状态机
@@ -124,7 +124,7 @@ crates/
 > **尖刺 A（已选，先做）「人的编辑与存储」**：PG 空库 → 建节点 → 编辑器里改正文 → 落库（草稿/定稿/快照/写入事实）→ 乐观并发冲突 → 刷新后内容与版本一致。**不含 LLM**。
 > **尖刺 B（下一轮）**：跑一次**真 run**（含流式正文投影 + 至少一个写工具）→ SSE 推到浏览器 → 定稿落库。顺带验证：`skills/` 文件原样可用、工具 schema 生成通、事件契约前端吃得下。
 > 分两步的理由：尖刺 A 已经能验证 Rust 生态的**主要不确定性**（axum + sqlx + 事务 + 类型生成 + 前端吃得下），却把最难的流式投影隔离出来单独打。
-> 种子数据用 `skills/samples/` 那 19 篇基准（真空库、真文本），不依赖 v1。
+> 种子数据用 `skills/atlas/references/samples/` 那 19 篇基准（真空库、真文本），不依赖 v1。
 
 **退出条件**：尖刺做不出来、或做出来但改动一次 prompt 的往返时间明显长于 v1 → **回 Go**（PG schema、前端、功能设计全部不受影响；Go 版后端按同一份文档实现）。
 
@@ -132,7 +132,7 @@ crates/
 
 **不迁 v1 数据**（2026-10 决定）：v2 从**空库**开始，v1 只作**代码与设计参考**（`archive/v1/`）。原先拟的「SQLite → PG 一次性迁移 + 双读核对」随之取消，`docs/database.md` §4 记了这个决定。
 
-**种子数据**用 `skills/samples/` 的 19 篇基准（真文本），够撑起编辑/检索/流式的开发与测试。
+**种子数据**用 `skills/atlas/references/samples/` 的 19 篇基准（真文本），够撑起编辑/检索/流式的开发与测试。
 
 **行为知识清单（已完成）**：v1 最值钱的不是代码，是散在注释、工具描述与 prompt 里的调优经验（"模型会这样，所以别那样"，见 §9 风险 1）。这些经验已逐条摘进 **`docs/behavior-notes.md`**，作为 agent 层的实现依据与验收标准。**M3 开工前必读，重写语言不该把踩过的坑再踩一遍。**
 
@@ -140,16 +140,17 @@ crates/
 
 **环境**：Rust **1.99.0**（rustup，走清华镜像）· PostgreSQL **18.6**（见 `docs/database.md` §7）· 前端 Node 24 + Vite 8。
 
-**crate 现状**（按 §3 的分层，只先立了三层）
+**crate 现状（M0–M9 已完成）**
 
 | crate | 状态 | 里面有什么 |
 |---|---|---|
-| `domain` | ✅ | 纯类型（NodeKind/Medium/NodeStatus/WriteSource…）+ 纯规则（标题归一化 · 排序键 · 介质规则）+ **13 条单测** |
-| `store` | ✅ | sqlx 仓储：`nodes`（树/建/排序键分配）· `content`（定稿事务/草稿/快照/版本表）· **6 条 `#[sqlx::test]` 集成测** |
-| `api` | ✅ | axum 6 个路由 + 错误映射（404/409/400/500）+ CORS |
-| `sources` | ✅ M1 | 三个媒体库客户端（GA cookie / Emby token / Komga api-key）+ 清单构建 + 扫描比对（零 LLM） |
-| `worker` | 🟡 M1 | `jobs` 消费（`FOR UPDATE SKIP LOCKED` + 租约）；`scan` 已通；`run` / `sync` / `audit` 收到就明确失败（M3/M7/M6 落地） |
-| `agent` | ⬜ | 尖刺 B（M3） |
+| `domain` | ✅ | 树/内容/媒体身份/关系/Review/反哺 DTO + 标题归一/检索相似度/摘要等纯规则 |
+| `store` | ✅ | 节点、内容、媒体库、关系/综合、Review/体检、反哺/重挂、检索/资料、导出导入、用量 |
+| `api` | ✅ | REST + SSE + 设置/密钥（不回显）+ MCP 同期本地接口 |
+| `sources` | ✅ | 三源扫描 + GameAtlas/Komga 反哺客户端（Emby 只读） |
+| `worker` | ✅ | `scan` / `run` / `sync` / `audit` 全部落地，PG 队列 + 租约 |
+| `agent` | ✅ | 通用 Atlas harness + 三段式写作 + 事实账本 + 质量闸 |
+| `mcp` | ✅ | stdio MCP server，只读 `search_works` / `read_node` / `get_tree` |
 
 **接口**（人都走这几个；`by` 暂时固定 `human:local`，登录体系落地后由中间件给）
 
@@ -223,6 +224,6 @@ bash scripts/layout-check.sh    # 32 项：三档视口 + 触底 + 窄屏抽屉�
 - `store::runs`：`runs` / `run_events` / `sessions` / `session_messages`（v1 形状原样搬，append-only）。
 - worker 认领 `run` 工单；**没配模型就明确失败**（不假装跑过）。
 - API：`POST /api/runs`（建工单 + 入队）+ `GET /api/runs/{id}/events`（SSE）。
-- 前端：Altas 右栏真接上——发送 → SSE → 实时正文 + 工具结果状态 → 收工刷节点。
+- 前端：Atlas 右栏真接上——发送 → SSE → 实时正文 + 工具结果状态 → 收工刷节点。
 
 **下一步（M4 写作与质量门）**：两步式（analysis→generation，`ai.md §4`）+ `prompts.md §2.3` 的写作流程 + 质量门（代码）→ 目标是把正文写到 **`/root/Game_Wiki` 那一档**（D3），再过门 → 定稿 → 快照。

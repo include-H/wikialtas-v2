@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import {
   App as AntApp,
+  Badge,
   Button,
   Form,
   Input,
@@ -11,30 +12,19 @@ import {
   Tree,
 } from 'antd'
 import {
-  BookOutlined,
+  DatabaseOutlined,
+  HomeOutlined,
+  MenuFoldOutlined,
   PlusOutlined,
+  SafetyCertificateOutlined,
   SearchOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, type Medium, type Node, type NodeKind } from '../api'
+import { KIND_LABEL, MEDIUM_LABEL, nodeIcon, statusClass } from '../nodeVisual'
 import { useUi } from '../store'
-
-const KIND_LABEL: Record<NodeKind, string> = {
-  universe: '宇宙',
-  series: '系列',
-  work: '作品',
-  doc: '资料',
-}
-
-const MEDIUM_LABEL: Record<Medium, string> = {
-  game: '游戏',
-  movie: '电影',
-  tv: '剧集',
-  manga: '漫画',
-  book: '图书',
-  other: '其他',
-}
 
 interface RawNode {
   key: string
@@ -71,8 +61,8 @@ function buildTree(nodes: Node[], keyword: string): RawNode[] {
     (childrenOf.get(parent) ?? []).map((n) => ({
       key: n.id,
       title: (
-        <span className="tree-node-title">
-          <BookOutlined />
+        <span className={`tree-node-title ${statusClass(n.status)}`}>
+          <span className="tree-node-icon">{nodeIcon(n)}</span>
           <span>{n.title}</span>
         </span>
       ),
@@ -81,7 +71,13 @@ function buildTree(nodes: Node[], keyword: string): RawNode[] {
   return build(null)
 }
 
-export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = {}) {
+export default function TreePanel({
+  onNavigate,
+  onCollapse,
+}: {
+  onNavigate?: () => void
+  onCollapse?: () => void
+} = {}) {
   const qc = useQueryClient()
   const { message } = AntApp.useApp()
   const { selectedId, select, view, setView } = useUi()
@@ -91,6 +87,7 @@ export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = 
   const kind: NodeKind = Form.useWatch('kind', form) ?? 'work'
 
   const nodes = useQuery({ queryKey: ['tree'], queryFn: api.tree })
+  const overview = useQuery({ queryKey: ['overview'], queryFn: api.overview })
 
   const create = useMutation({
     mutationFn: api.createNode,
@@ -110,8 +107,8 @@ export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = 
   return (
     <div className="side-nav">
       <div className="side-brand">
-        <span className="brand-mark">W</span>
-        <span>WikiAtlas</span>
+        <span className="brand-mark">A</span>
+        <span>Atlas</span>
       </div>
 
       <Input
@@ -123,16 +120,18 @@ export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = 
         onChange={(e) => setKeyword(e.target.value)}
       />
 
-      {/* v1 的全局导航。后两项 WikiAtlas 还没做——**明确禁用**，不做假入口 */}
+      {/* v1 的全局导航；主页 = 未选节点时的首页（`design.md §6.1 §6.2`） */}
       <nav className="side-links">
         <div
-          className={`side-link${view === 'doc' ? ' is-active' : ''}`}
+          className={`side-link${view === 'doc' && !selectedId ? ' is-active' : ''}`}
           onClick={() => {
+            select(null)
             setView('doc')
             onNavigate?.()
           }}
         >
-          主页
+          <HomeOutlined />
+          <span>主页</span>
         </div>
         <div
           className={`side-link${view === 'pool' ? ' is-active' : ''}`}
@@ -141,7 +140,42 @@ export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = 
             onNavigate?.()
           }}
         >
-          媒体库池子
+          <DatabaseOutlined />
+          <span>媒体库池子</span>
+          <span style={{ flex: 1 }} />
+          {overview.data && overview.data.unbuilt > 0 && (
+            <Badge count={overview.data.unbuilt} overflowCount={9999} color="var(--ant-color-primary)" />
+          )}
+        </div>
+        <div
+          className={`side-link${view === 'search' ? ' is-active' : ''}`}
+          onClick={() => {
+            setView('search')
+            onNavigate?.()
+          }}
+        >
+          <SearchOutlined />
+          <span>全文检索</span>
+        </div>
+        <div
+          className={`side-link${view === 'audit' ? ' is-active' : ''}`}
+          onClick={() => {
+            setView('audit')
+            onNavigate?.()
+          }}
+        >
+          <SafetyCertificateOutlined />
+          <span>体检与 Review</span>
+        </div>
+        <div
+          className={`side-link${view === 'settings' ? ' is-active' : ''}`}
+          onClick={() => {
+            setView('settings')
+            onNavigate?.()
+          }}
+        >
+          <SettingOutlined />
+          <span>设置与用量</span>
         </div>
       </nav>
 
@@ -191,6 +225,17 @@ export default function TreePanel({ onNavigate }: { onNavigate?: () => void } = 
 
       <div className="side-foot">
         <span>{total} 个节点</span>
+        {onCollapse && (
+          <Tooltip title="收起知识库">
+            <Button
+              type="text"
+              size="small"
+              aria-label="收起知识库"
+              icon={<MenuFoldOutlined />}
+              onClick={onCollapse}
+            />
+          </Tooltip>
+        )}
       </div>
 
       <Modal

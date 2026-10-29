@@ -35,3 +35,6 @@ archive/v1/codex/
 archive/v1/deepseek-harness/
 # v1 的运行时数据（D2：不迁 v1 数据）
 archive/v1/backend/data/
+
+# 本地备份
+.backups/

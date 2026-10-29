@@ -9,6 +9,8 @@
 use serde::Serialize;
 use wikiatlas_domain::Medium;
 
+use crate::skeleton::chapter5_name;
+
 /// 一条检查结论。
 #[derive(Debug, Clone, Serialize)]
 pub struct Issue {
@@ -44,15 +46,6 @@ pub const MIN_CHARS_FULL: usize = 6000;
 
 /// 套话黑名单（`prompts.md §3` 第 8/13 条）。**只列"糊弄"的**，不列正常评价词。
 const BANNED: &[&str] = &["据说", "广受好评", "好评如潮", "神作", "天花板", "不容错过"];
-
-/// 第 5 章的章名按介质三档替换（`wiki-skeleton §3`）。
-fn chapter5_name(medium: Medium) -> &'static str {
-    match medium {
-        Medium::Game => "玩法与结构特色",
-        Medium::Manga | Medium::Book => "创作特色",
-        _ => "叙事与影像特色",
-    }
-}
 
 /// 跑一遍质量门。
 pub fn check(medium: Medium, body: &str, min_chars: usize) -> Report {

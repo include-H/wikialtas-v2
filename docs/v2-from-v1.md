@@ -1,4 +1,4 @@
-# WikiAtlas v2 · 照着 v1 说「去 / 留 / 改」
+# Atlas v2 · 照着 v1 说「去 / 留 / 改」
 
 > **这份文档回答一个问题**：v1（`archive/v1`）里哪些**留**、哪些**去**、哪些**改**，以及 llm_wiki 的方法论内核怎么并进来。
 > **关联**：决策冻结表在 `README.md §3`；行为证据在 `behavior-notes.md`；功能面在 `features.md`。
@@ -8,9 +8,9 @@
 
 ## 0. 两份地图，先分清楚
 
-### 0.1 WikiAtlas v1（归档应用）是什么
+### 0.1 Atlas v1（归档应用）是什么
 
-- 面向**个人媒体库**的中文百科创作工具：把 Emby / Komga / GameAtlas 的收藏整理成「宇宙 → 系列 → 单作」的树，交给 LLM 馆员 **Altas** 按 `skills/wiki-writing` 写条目。
+- 面向**个人媒体库**的中文百科创作工具：把 Emby / Komga / GameAtlas 的收藏整理成「宇宙 → 系列 → 单作」的树，交给 LLM 馆员 **Atlas** 按 `skills/wiki-writing` 写条目。
 - 技术：Go（net/http）+ SQLite + React + Semi Design；LLM 走 **OpenAI Responses** 协议，SSE 直出到界面。
 - 它**已经把这些做对了**（v2 全部继承）：正文唯一真相（一篇 Markdown）、会话日志作为上下文事实源、Responses 原生事件 + `wikiatlas.*` 旁路、工具面纪律、护栏、流式正文投影、媒体库三源 + "AI 只建议不挂链"、判定口径版本化、视觉宪法（紫色只给 AI）。
 - 它**有这些病根**（v2 要治）：
@@ -31,7 +31,7 @@
 
 **核心差异（必须记住）**：
 
-| | llm_wiki | WikiAtlas |
+| | llm_wiki | Atlas |
 |---|---|---|
 | 一个"来源"产出 | **多篇**页面（entity/concept/synthesis/query） | **一篇**文档（一个库条目 ↔ 一篇） |
 | 主干结构 | 页面**图**（wikilink + frontmatter `sources[]`） | 归属**树**（宇宙/系列/单作）+ 关系边 |
@@ -42,13 +42,13 @@
 
 ---
 
-## 1. 边界：WikiAtlas 从 llm_wiki 只取内核
+## 1. 边界：Atlas 从 llm_wiki 只取内核
 
 **要（内核）**：知识库是被持续维护的产物 · 增量编译 · 矛盾显式标注 · schema/purpose 分层 · 人策展 + LLM 维护 · **宿主确定性维护导航** · 可校验的产出结构。
 
 **不要（实现）**：多格式解析（PDF/Office/EPUB/MOBI/MinerU）· 向量语义检索（LanceDB/pgvector 主路径）· 四信号图谱 + Louvain + 图谱洞察 · 去重队列 · Chrome 扩展 · 深度研究主路径 · Obsidian vault 兼容 · 桌面端打包。
 
-**理由**：WikiAtlas 的原料是**结构化清单**（媒体库条目）而不是"一坨任意文档"，所以 llm_wiki 里最重的那些"把野文档变成可检索知识"的机器，对 WikiAtlas 是**成本 >> 收益**。
+**理由**：Atlas 的原料是**结构化清单**（媒体库条目）而不是"一坨任意文档"，所以 llm_wiki 里最重的那些"把野文档变成可检索知识"的机器，对 Atlas 是**成本 >> 收益**。
 
 **但要补一个缺口**：llm_wiki 最值钱的东西是**页面之间的网 + 跨来源综合**。v1 的树只是"归属"，`relations` 只是"展示"。所以 v2 **必须**把「关系网 + 综合页」提成一等公民（见 §3.2 与 `features.md §6.5`）。
 
@@ -62,7 +62,7 @@
 |---|---|---|
 | **留** | "媒体库文档层 + 一位有全权工具、没有手的馆员"；核心链（扫描→池子→建档→写正文→反哺→失效重挂） | 这是产品存在的理由，v1 已验证 |
 | **改** | 把 llm_wiki 的 **Lint（体检）** 提成一等公民（v1 把它当附属） | "持续维护"的复利全靠它，否则 wiki 会烂 |
-| **去** | 通用知识库幻觉（"什么都能装"） | WikiAtlas 服务的是个人媒体库 |
+| **去** | 通用知识库幻觉（"什么都能装"） | Atlas 服务的是个人媒体库 |
 
 ### 2.2 结构层
 
@@ -196,7 +196,7 @@ v1 的 `staging`（生成中的正文）只存在于 SSE 事件里、队列在�
 
 | llm_wiki 能力 | 不采纳的理由 |
 |---|---|
-| 多格式文档解析（PDF/Office/EPUB/MOBI + MinerU） | WikiAtlas 的原料是媒体库清单，不是野文档；需要时用 workspace 里的技能样例 |
+| 多格式文档解析（PDF/Office/EPUB/MOBI + MinerU） | Atlas 的原料是媒体库清单，不是野文档；需要时用 workspace 里的技能样例 |
 | 向量语义检索（LanceDB）+ 去重队列 | 一个条目一篇文档的规模，bigram/trigram 够用；向量后置 |
 | 四信号图谱 + Louvain 社区 + 图谱洞察 | 通用知识库的图谱分析，对媒体库收益有限；只保留"关系图可视化"（可后置） |
 | Chrome 网页剪藏 | 与"媒体库文档层"无关 |

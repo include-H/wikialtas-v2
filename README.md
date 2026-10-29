@@ -1,7 +1,7 @@
-# WikiAtlas v2
+# Atlas v2
 
-**WikiAtlas = 你的媒体库书架 + 一位有全权工具、但没有手的 LLM 馆员。**
-它是 GameAtlas / Emby / Komga 的**文档层**：库里一个条目对应一篇 wiki 文档；WikiAtlas 是文档真源，定稿反哺回库。
+**Atlas = 你的媒体库书架 + 一位有全权工具、但没有手的 LLM 馆员。**
+它是 GameAtlas / Emby / Komga 的**文档层**：库里一个条目对应一篇 wiki 文档；Atlas 是文档真源，定稿反哺回库。
 
 > **续工入口：新对话先加载 [`docs/TRACKING.md`](docs/TRACKING.md)**——它记录当前状态、里程碑看板与下一步，并按 `docs/README.md`（总纲 / **决策冻结表** / 路线图）继续开发，不再需要逐条拍板。
 
@@ -27,18 +27,30 @@ v1 已整棵归档到 [`archive/v1/`](archive/v1/)（代码、脚本、技能、
 - 前端：`docs/frontend.md` · v1 前端迁移：`docs/frontend-migration.md`
 - 测试：`docs/testing.md`
 
-## 现状（M0 已完成）
+## 现状（M0–M9 已完成）
 
-**代码骨架已立**：`crates/{domain,store,api}`（Rust，含单测 + `sqlx::test` 集成测）、`frontend/`（AntD X 三面板骨架 + Milkdown 编辑器）；**尖刺 A「人的编辑与存储」已跑通**。
+V2 已完成路线图里的全部里程碑：媒体库扫描/建档、通用 Atlas harness、三段式写作、关系与综合页、Review/体检、反哺与重挂、全文检索/存资料、MCP 与运维。
 
-**下一步 = `docs/README.md §4` 的 M1（媒体库进料）**，一路到 M9。所有里程碑的产出、依据、验收都在那张表里。
+**验收方式**：后端单测 + `sqlx::test` 集成测 + 前端构建 + 隔离临时库/临时端口的端到端真跑。媒体库写回没有擅自写你的真实 GameAtlas/Komga；使用本地真 HTTP 仿真验证协议与状态机，真实库确认需一次显式批准。
 
 ```bash
 # 后端（需 PostgreSQL 18，连接串在 .secrets/wikiatlas.pg.env）
 set -a; . .secrets/wikiatlas.pg.env; set +a; export DATABASE_URL="$WIKIATLAS_DB_URL"
 cargo run -p wikiatlas-api          # 127.0.0.1:8088，启动自动跑迁移
 cargo test --workspace              # 单测 + 集成
+WIKIATLAS_DB_URL="$WIKIATLAS_DB_URL" cargo run -p wikiatlas-mcp  # stdio MCP（只读）
 
 # 前端
 cd frontend && npm run dev          # 5173，/api 代理到 8088
+```
+
+隔离验收脚本（不碰现有库）：
+
+```bash
+bash scripts/e2e-sync.sh        # M7 反哺/失效/重挂
+bash scripts/e2e-relations.sh   # M5 关系/综合/索引
+bash scripts/e2e-audit.sh       # M6 Review/体检
+bash scripts/e2e-search.sh      # M8 检索/存资料
+bash scripts/e2e-ops.sh         # M9 MCP/设置/用量/导出恢复
+bash scripts/e2e-harness-tools.sh  # Harness 全工具/只读裁剪（mock 模型）
 ```

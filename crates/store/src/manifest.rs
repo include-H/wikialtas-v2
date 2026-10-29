@@ -24,6 +24,10 @@ pub struct ManifestStats {
     pub changed: usize,
     pub unchanged: usize,
     pub missing: u64,
+    /// 本次扫描新标成 stale 的链数。
+    pub stale_links: u64,
+    /// 消失后又出现、自动恢复 active 的链数。
+    pub restored_links: u64,
 }
 
 /// 清单 / 池子的过滤条件。None = 不过滤。
@@ -103,6 +107,23 @@ impl TryFrom<ManifestDb> for ManifestRow {
 
 /// 写入一次全量扫描的清单：upsert 见到的条目，标记本源的消失条目。
 pub async fn upsert_manifest(pool: &PgPool, entries: &[ManifestEntry]) -> Result<ManifestStats> {
+    upsert_manifest_inner(pool, entries, None).await
+}
+
+/// 单源扫描入口。**空清单也必须知道是哪个源**，否则「源清空」不会标 missing / stale。
+pub async fn upsert_manifest_for_source(
+    pool: &PgPool,
+    source: Source,
+    entries: &[ManifestEntry],
+) -> Result<ManifestStats> {
+    upsert_manifest_inner(pool, entries, Some(source)).await
+}
+
+async fn upsert_manifest_inner(
+    pool: &PgPool,
+    entries: &[ManifestEntry],
+    forced_source: Option<Source>,
+) -> Result<ManifestStats> {
     let mut stats = ManifestStats {
         seen: entries.len(),
         ..Default::default()
@@ -112,6 +133,9 @@ pub async fn upsert_manifest(pool: &PgPool, entries: &[ManifestEntry]) -> Result
     // 先把「本次扫描前这些源已有的指纹」读出来，才能分辨 新增 / 变更 / 未变。
     let sources: Vec<String> = {
         let mut v: Vec<String> = entries.iter().map(|e| e.source.as_str().into()).collect();
+        if let Some(source) = forced_source {
+            v.push(source.as_str().into());
+        }
         v.sort();
         v.dedup();
         v
@@ -188,6 +212,30 @@ pub async fn upsert_manifest(pool: &PgPool, entries: &[ManifestEntry]) -> Result
         .execute(&mut *tx)
         .await?;
         stats.missing += res.rows_affected();
+
+        // 清单消失 → 链 stale；再次出现 → 链自动 active。文档与链行都不删。
+        let stale = sqlx::query(
+            "UPDATE library_links l SET state = 'stale', \
+                    missing_since = COALESCE(l.missing_since, m.missing_since, now()) \
+             FROM library_manifest m \
+             WHERE l.source = m.source AND l.external_id = m.external_id \
+               AND m.source = $1 AND m.missing_since IS NOT NULL AND l.state = 'active'",
+        )
+        .bind(src)
+        .execute(&mut *tx)
+        .await?;
+        stats.stale_links += stale.rows_affected();
+
+        let restored = sqlx::query(
+            "UPDATE library_links l SET state = 'active', missing_since = NULL \
+             FROM library_manifest m \
+             WHERE l.source = m.source AND l.external_id = m.external_id \
+               AND m.source = $1 AND m.missing_since IS NULL AND l.state = 'stale'",
+        )
+        .bind(src)
+        .execute(&mut *tx)
+        .await?;
+        stats.restored_links += restored.rows_affected();
     }
 
     tx.commit().await?;

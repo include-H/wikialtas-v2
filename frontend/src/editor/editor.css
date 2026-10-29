@@ -57,6 +57,41 @@
   border-collapse: collapse;
 }
 
+/* 排版收口（`design.md §6.3`）：列表紧凑、表格斑马纹、分隔线弱化、章标题下加细线 */
+.doc-body .ProseMirror ul,
+.doc-body .ProseMirror ol {
+  padding-left: 1.4em;
+}
+
+.doc-body .ProseMirror li {
+  margin: 2px 0;
+}
+
+.doc-body .ProseMirror li p {
+  margin: 0;
+}
+
+.doc-body .ProseMirror thead th {
+  background: var(--ant-color-fill-quaternary);
+  font-weight: 600;
+}
+
+.doc-body .ProseMirror tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--ant-color-fill-quaternary) 55%, transparent);
+}
+
+.doc-body .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--ant-color-border-secondary);
+  opacity: 0.7;
+  margin: 1.4em 0;
+}
+
+.doc-body .ProseMirror h2 {
+  padding-bottom: 0.22em;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
 .doc-body .ProseMirror th,
 .doc-body .ProseMirror td {
   padding: 4px 10px;
@@ -66,14 +101,203 @@
 /* 浮层宿主：工具栏 / 斜杠菜单 / 块手柄都由 createPortal 挂到 body。
    它们是 fixed 的挂点，**绝不能参与 body 的布局**——否则页面会凭空多出一条
    纵向滚动（`scripts/layout-check.sh` 的「长正文下页面仍不滚」就盯这个）。
-   收起态（data-show="false"）直接隐藏。 */
+   用 `visibility` 而不是 `display:none` 隐藏：floating-ui 定位时要量元素的
+   `getBoundingClientRect`，`display:none` 量出来是 0 宽（块手柄/工具栏会因此
+   贴到正文左缘、压住文字）。未显式 `data-show=true` 的一律先藏。 */
 .editor-portal {
   position: fixed;
   top: 0;
   left: 0;
   z-index: 1000;
+  visibility: hidden;
 }
 
-.editor-portal[data-show='false'] {
-  display: none;
+.editor-portal[data-show='true'] {
+  visibility: visible;
+}
+
+/* ================================================================ 编辑器浮层外观
+ * v1 里工具栏 / 斜杠菜单 / 块手柄是 BlockNote 自带（有主题）；v2 换成 Milkdown 后
+ * 只搭了宿主容器（`.editor-portal`），组件本身没打扮——于是渲染成浏览器默认按钮
+ * （灰底方框）。这里按 `VISUAL_SPEC` 的飞书语法补齐，颜色一律走 AntD token。
+ */
+
+/* 空文档容器要相对定位，才能把「按 / 插入内容」提示钉在编辑区左上 */
+.milkdown-wrap {
+  position: relative;
+  min-height: 100%;
+}
+
+/* —— 选区格式化工具栏（v1 的 FeishuToolbar）—— */
+.feishu-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 6px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ant-border-radius-lg, 8px);
+  background: var(--ant-color-bg-elevated);
+  box-shadow: var(--ant-box-shadow-secondary, 0 6px 16px rgba(0, 0, 0, 0.08));
+}
+
+.feishu-toolbar .ant-divider-vertical {
+  height: 16px;
+  margin: 0 4px;
+}
+
+.tb-btn.ant-btn {
+  color: var(--ant-color-text-secondary);
+  min-width: 26px;
+  padding-inline: 5px;
+}
+
+.tb-btn.ant-btn:hover {
+  color: var(--ant-color-text);
+  background: var(--ant-color-fill-tertiary);
+}
+
+.tb-btn.ant-btn.is-active {
+  color: var(--ant-color-primary);
+  background: var(--ant-color-primary-bg);
+}
+
+/* AI 动作是紫色专属区（问 Atlas / 翻译 / 解释） */
+.tb-ai .tb-btn.ant-btn,
+.tb-ai .tb-btn.ant-btn:hover {
+  color: var(--ai);
+}
+
+.tb-ai .tb-btn.ant-btn:hover {
+  background: color-mix(in srgb, var(--ai) 10%, transparent);
+}
+
+/* —— `/` 插入菜单 —— */
+.slash-menu {
+  width: 244px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--ant-border-radius-lg, 8px);
+  background: var(--ant-color-bg-elevated);
+  box-shadow: var(--ant-box-shadow-secondary, 0 6px 16px rgba(0, 0, 0, 0.08));
+}
+
+.slash-menu-head {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  color: var(--ant-color-text-quaternary);
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ant-color-text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.slash-menu-item:hover,
+.slash-menu-item.is-active {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.slash-menu-icon {
+  display: inline-flex;
+  justify-content: center;
+  width: 18px;
+  flex: none;
+  color: var(--ant-color-text-tertiary);
+}
+
+.slash-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-menu-hint {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--ant-color-text-quaternary);
+}
+
+/* —— 块手柄（v1 的 SideMenu：悬停出现，icon 按钮，不做灰方框）—— */
+.block-handle {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.block-handle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ant-color-text-quaternary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.block-handle-btn:hover {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text-secondary);
+}
+
+.block-handle-grip {
+  cursor: grab;
+}
+
+.block-handle-del:hover {
+  color: var(--ant-color-error);
+}
+
+/* —— 空文档提示 + 行内 AI 胶囊（飞书「AI 帮我写」）—— */
+/* 位置由 JS 按光标算（placeHint），这里只定形态 */
+.doc-empty-hint {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 14px;
+  color: var(--ant-color-text-quaternary);
+}
+
+.ai-inline-pill {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 999px;
+  background: var(--ant-color-bg-container);
+  color: var(--ai);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ai-inline-pill:hover {
+  background: var(--ant-color-fill-quaternary);
+  border-color: var(--ai);
 }

@@ -1,4 +1,4 @@
-# WikiAtlas v2 · 开发文档总纲
+# Atlas v2 · 开发文档总纲
 
 > **本文是整套文档的入口与最高裁决处。** 任何具体文档之间、或文档与代码之间冲突，一律以本文件的「决策冻结表」为准；表里没有的，按「文档地图」里的分工判定。
 > 本套文档的**唯一目标**：让后续开发可以**完全照着文档进行**，不再需要产品方逐条拍板。
@@ -8,9 +8,9 @@
 
 ## 0. 一句话定位
 
-**WikiAtlas = 你的媒体库书架 + 一位有全权工具、但没有手的馆员。**
+**Atlas = 你的媒体库书架 + 一位有全权工具、但没有手的馆员。**
 
-- **它是「媒体库的文档层」**：GameAtlas / Emby / Komga 里的**一个条目对应一篇 wiki 文档**；WikiAtlas 是文档真源，把最新定稿**反哺**回库。
+- **它是「媒体库的文档层」**：GameAtlas / Emby / Komga 里的**一个条目对应一篇 wiki 文档**；Atlas 是文档真源，把最新定稿**反哺**回库。
 - **方法论基准是 `nashsu/llm_wiki`（Karpathy 的 llm-wiki 模式）**：知识库是**被持续维护的产物**（持续编译），不是每次查询现挖 RAG。
 - **它不复制 llm_wiki 的"通用知识库"实现**（多格式解析 / 向量检索 / 图谱算法 / 深度研究 / 桌面端），只取它的**方法论内核**：增量编译 · 矛盾显式 · schema 分层 · 人策展 + LLM 维护。详见 `docs/v2-from-v1.md`。
 
@@ -55,6 +55,7 @@
 |---|---|---|
 | **`docs/TRACKING.md`** | **续工入口：当前状态 / 里程碑看板 / 进度日志**（新对话第一步读它） | 所有人，最先读 |
 | `docs/README.md` | **总纲 · 决策冻结 · 路线图** | 所有人，先读 |
+| **`docs/design.md`** | **设计方案（2026-10-12 主导接手）：三段式写作 · 事实账本 · 路线图重排 · 前端视觉收口** | 所有人，读完 README 就读它 |
 | `docs/features.md` | 功能清单（做什么 / 不做什么） | 所有人 |
 | `docs/v2-from-v1.md` | **v1 → v2 的「去 / 留 / 改」**（为什么这么定） | 所有人，接手前必读 |
 | `docs/behavior-notes.md` | **行为知识清单**（v1 血泪 + llm_wiki 教训；写 agent 层前必读） | 后端 / prompt / 技能维护者 |
@@ -84,9 +85,9 @@
 
 | # | 裁决 | 详 |
 |---|---|---|
-| D1 | WikiAtlas = 媒体库文档层；**一个库条目 ↔ 一篇文档**；WikiAtlas 是真源，定稿反哺回库 | `features.md §0` |
-| D2 | **不迁 v1 数据**，v2 从空库起；种子数据用 `skills/samples/` 的 18 篇基准 | `backend.md §10` |
-| D3 | 「写得好」分两层：**规则层** = `skills/samples/`（18 篇手写基准，与技能**双向对齐**）；**产出层** = **`/root/Game_Wiki` 的真产出**（Altas 按本技能集生成、随生产增长）。**V2 的 Altas 产出必须达到 Game_Wiki 这一档**，Game_Wiki 兼作产出回归语料 | `skills.md §5` · `eval-cases.md` |
+| D1 | Atlas = 媒体库文档层；**一个库条目 ↔ 一篇文档**；Atlas 是真源，定稿反哺回库 | `features.md §0` |
+| D2 | **不迁 v1 数据**，v2 从空库起；种子数据用 `skills/atlas/references/samples/` 的 18 篇基准 | `backend.md §10` |
+| D3 | 「写得好」分两层：**规则层** = `skills/atlas/references/samples/`（18 篇手写基准，与技能**双向对齐**）；**产出层** = **`/root/Game_Wiki` 的真产出**（Atlas 按本技能集生成、随生产增长）。**V2 的 Atlas 产出必须达到 Game_Wiki 这一档**，Game_Wiki 兼作产出回归语料 | `skills.md §5` · `eval-cases.md` |
 | D4 | 明确不做：多租户 / 权限组 / 发布工作流 / IM 机器人 / 桌面打包 / Obsidian 兼容 / 移动端 / 多语言界面 | `features.md §10` |
 | D5 | 访问控制 = 单一访问密码 + 节点级 public/private（沿用 v1 语义）；**默认 private** | `database.md §2` |
 
@@ -130,7 +131,7 @@
 | D29 | 三种"不要"语义分开：池子全局忽略（条目没价值）/ 节点 per-node dismiss（别向此节点提）/ 建议拒绝（带理由，回喂二次判断） | `library-sync.md §4` |
 | D30 | 判定口径进数据：`judge_cache.fingerprint = hash(prompt_version, model, input_signature)`，改口径自动重判 | `database.md §2` |
 | D31 | 容器语义两类：GA/Komga 的 series = **作品系列**（可当父节点）；Emby 的 library = **库**（拿库名建节点无意义） | `library-sync.md §2` |
-| D32 | 反哺时机 = **定稿自动推** + 手动重推兜底；语义 = WikiAtlas 独占字段、以最新定稿覆盖；幂等（同 `synced_ver` 不重推） | `library-sync.md §5` |
+| D32 | 反哺时机 = **定稿自动推** + 手动重推兜底；语义 = Atlas 独占字段、以最新定稿覆盖；幂等（同 `synced_ver` 不重推） | `library-sync.md §5` |
 | D33 | 重挂 = **宿主建议（归一化标题 + trigram 模糊，零 LLM）+ 手动兜底**；旧链标 `replaced`，文档不动 | `library-sync.md §6` |
 | D34 | Komga 摘要适配规则：取正文**首个非说明非题记段落**，去 markdown 标记，**截断上限 500 字**、超出加 `…`（实现期以 Komga 实测字段约束为准，若更严则取更短，规则此处冻结） | `library-sync.md §5` |
 
@@ -174,26 +175,57 @@
 | D54 | run 的目标节点由**宿主注入提示词**（模型不猜 id），写工具再二次校验；**写类工单第一轮 `tool_choice=required`**（实测模型爱"把正文写在回复里"而不调工具），之后交回 `auto`。模型配置（base_url / key / model / effort / **context_window**）走 `secrets` 表 `llm.*`，窗口只有一个来源 | `backend.md §5 §6` · `behavior-notes.md §2 §5` |
 | D53 | 源密钥**唯一真相是 `secrets` 表**（`<source>.base_url` / `gameatlas.password` / `emby.token` / `komga.api_key`）；**M1 允许 `WIKIATLAS_*` 环境变量兜底**（设置页还没做），设置页落地后删掉兜底那一半。密钥值**绝不进任何 API DTO** | `database.md §4` / `library-sync.md §1` |
 
+### 3.9 设计主导接手（2026-10-12，产品方委托实现方主导；详见 `docs/design.md`）
+
+| # | 裁决 | 详 |
+|---|---|---|
+| D55 | 写正文 = **一个工单三个阶段**：研究 → 骨架 → 生成（`runs.checkpoint.phase`）；**生成段不带检索工具**，研究段不能写正文。修订类小任务直接进生成段。取代 D11 里"两步式"的具体形状 | `design.md §2` |
+| D56 | **事实账本**是一等公民：作品节点下 `kind='doc'`、`tags=['账本']` 的资料，固定"断言表 + 来源表"格式；状态只有 `已核实/冲突/待核实`；修订、问答、体检复用它。不加新表 | `design.md §2.3` |
+| D57 | 研究段**按必填字段覆盖率收工**（按介质的清单，代码计算、每轮注入"还缺什么"），预算兜底（检索 ≤12 / 抓取 ≤8 / 轮次 ≤24，可配）；加 `web_fetch`（超 12k 字截断并明说） | `design.md §2.2` |
+| D58 | 生成段**按章写**（`patch_section` 波次，每章一次调用）；质量门不过只重写不过的章 | `design.md §2.5` |
+| D59 | 新增**账本门**（覆盖率 ≥80%、来源 ≥5）、**骨架门**、**引用门**（参考资料每条对应账本来源），全部是代码 | `design.md §3` |
+| D60 | M4 验收改为**规则档**（过门即可）；**Game_Wiki 产出档**改为持续评测指标、不阻塞里程碑（修订 D3 的验收用法，D3 的目标不变） | `design.md §4` |
+| D61 | 执行引擎默认内置；研究段抽象为 `ResearchRunner`，A/B 评测若账本覆盖率持续 <80% 再接外部 harness（经 MCP） | `design.md §2.6` |
+| D62 | **路线图执行顺序**：M4 → **M7（反哺提前）** → M5 → M6 → M8 → M9；编号不变 | `design.md §5` |
+| D63 | 前端视觉收口规格（首页 / 树图标与状态点 / 760px 统一阅读栏 / ⋯菜单与版本历史 / 来源条 / 实时写入视图 / Atlas 时间线）以 `design.md §6` 为准 | `design.md §6` |
+| D64 | 实时写入视图用**自写的块级 Markdown 渲染**（前缀块复用 DOM、末块 `live-tail`），不引新依赖；收工后切回编辑器、从服务端草稿重新基线（D46 不变） | `design.md §6.3` |
+
+### 3.10 实现期补充（M4 落地时拍板，追加不改前面的）
+
+| # | 裁决 | 详 |
+|---|---|---|
+| D65 | **账本覆盖率口径**：必填字段按介质清单数；一条断言**状态为 `已核实` 或 `冲突`** 才算覆盖该字段，`待核实` 不算；计数类要求用最小条数（核心玩法机制 ≥3 · 主要角色 ≥4 · 评价 ≥1）。阈值：覆盖率 ≥80% 且去重来源 URL ≥5 | `design.md §2.2 §3.1` |
+| D66 | **账本复用 `contents` 落库**（`updated_by='host'`，不产生草稿租约、不逐次快照）；作品下的账本节点按 `tags=['账本']` **唯一化**（`store::ledger::save` 幂等：有就复用、没有才建） | D56 · `design.md §2.3` |
+| D67 | **骨架兜底**：骨架段模型两次都不过骨架门 → 宿主按介质标准 1–9 章造一份（每节挂全部账本行），**不许卡死整条链** | `design.md §2.4` |
+| D68 | **生成段只暴露 `patch_section`**（外加只读 `read_skill` / `read_ledger`），**不暴露检索**；质量门/引用门不过只回炉问题章一次，映射不到具体章（字数 / 套话等全局项）则整篇回炉。`write_content` 保留给后续「小任务 / 修订」路径 | `design.md §2.5` |
+| D69 | **（已被 D71 取代，留作记录）** run 按 `intent` 路由执行路径：`写正文` 走三段流水线、`问答` 走只读工具循环 | —— |
+| D70 | **路线图临时插入 M4.5（通用 Atlas Harness）**，优先级高于 D62 的 M7；做完 M4.5 回到 D62 既定顺序（M7 → M5 → M6 → M8 → M9）。里程碑编号不变 | 本表 D62 · `design.md §5` |
+| D71 | **Atlas = 一个通用 harness**（**取代 D69 的「写/问 双引擎 + UI 开关」**）：**一个循环 + 一整套工具面**，模型自己判断是答还是写——**没有 UI 模式开关、没有按 `intent` 选路**。三段式写作（研究→骨架→生成）**收成 `write_wiki` 工具**，模型**按需调用**（D55 的结构修复保留，但不再是隐藏的第二条路径）。**动作层护栏**（对齐 dsh `tools/pre-execute` allow/deny/ask、Codex approval policy、OpenCode permission）：`policy::check`（归档拒写等）+ **`write_wiki` 一轮只做一次**（真跑实测：模型看到 `quality=failed` 就整篇重来、烧额度）；正文永远只落草稿。**事件分层**：每次整篇撰写发 `wikiatlas.write.end`（质量/引用/账本），run 收尾发 `wikiatlas.run.end`。读工具 `read_node` 去掉 `outline_only`（真跑实测：模型只看大纲就答「库里没内容」）。**模式只引导行为，不切换能力面**（回到 D14 原意） | `ai.md §1 §4` · `tools.md §1 §3` · `design.md §2` · `archive/v1/deepseek-harness/packages/core/{agent-loop,tools,system-prompt}` |
+| D72 | **通用 Harness 工具面补齐，不把 API 当工具**：节点/正文局部编辑/批量章节/关系/媒体链/资料/归档/todo/会话回忆全部进工具面；编辑器三态 `edit / proofread / read` 从 run context 进入工具面与 `policy` 双层裁剪（read 无写工具；proofread 有写工具但默认只报告问题，明确要求才改；edit 由模型判断问还是做）。提示词采用 DSH 风格，工具怎么用写在工具 description。联网搜索改为**一个聚合 `search_web`**：Exa / Brave / DeepSeek 并行、URL 去重、RRF 融合、单 provider 失败可降级；不设“无限循环”，但默认预算提高为检索 24 / 抓取 16 / 研究 48 轮，均可配置。单次搜索默认融合 20 条（上限 50），provider 侧自动拉 20–100 条候选 | `tools.md` · `phases.rs` · `harness_tools/` · `websearch.rs` |
+| D73 | **多轮会话是 Harness 一等公民**：一个节点下可有多条 session；每次 run 必须绑定 `session_id`，运行时从 `session_messages` 重建历史（最近 40 条、3 万字符预算）。默认会话为 `work:<node_id>`，新会话为 `work:<node_id>:<uuid>`；用户与助手消息 append-only，首条用户消息自动成为新会话标题。前端支持会话切换、新建和历史消息渲染 | `backend.md §6` · `api.md §1.5` · `runs.rs` · `AiPanel.tsx` |
+| D74 | **「接受 / 拒绝 AI 修订」在 v2 = 定稿 / 丢弃草稿**：AI 产物只落 `content_drafts`（D46），**接受 = 定稿**（走既有 commit 事务）；**拒绝 = `DELETE /api/nodes/{id}/draft`**，回到最近一次定稿、不产生版本。不再迁 v1 `PendingRevisions` 的 localStorage 归档机制（那是「AI 直接 commit 后再回滚」的补丁） | `frontend.md §5.5` · `api.md §1.2` · `content.rs` · `DocPanel.tsx` |
+
 ---
 
 ## 4. 开发路线图（里程碑 · 每步可独立验收）
 
 > 原则：**每个里程碑都要有一个"真跑"的验收**（不是"编译通过"），且都从**空库**起跑。
+> **执行顺序已按 D62 调整：M4 → M7 → M5 → M6 → M8 → M9**（编号不变）。
 > 依赖关系：M1→M2 是核心链前半；M3 是 Agent 内核（最关键的不确定性）；M4 起进入写作；M5–M8 是维护与产出层；M9 收口。
 > 每个里程碑的详细规格在其"依据"列所指文档。
 
 | 里程碑 | 产出 | 依据 | 验收（真跑） |
 |---|---|---|---|
 | **M0 基线** ✅ | `domain`/`store`/`api` 三层 + 前端骨架 + 尖刺 A（人的编辑与存储） | `backend.md §11` | 已有：`cargo test` + `scripts/e2e-ui.sh` |
-| **M1 媒体库进料** | `sources` crate：三源客户端 + 清单构建 + `scan_runs`；池子 API + 前端池子面板 | `library-sync.md §1–3` | 真库（192.168.1.4）扫三源 → 清单进 `library_manifest` → 池子列出"有/无文档" |
-| **M2 建档与关联** | 落位规则（domain）+ 原子建节点+链（store 事务）+ 池子建档/忽略 + 链管理 | `library-sync.md §2 §4` | 池子点一条 → 树出现节点 + 链 active；解链保留文档；撞名加介质后缀 |
-| **M3 Agent 内核**（尖刺 B） | `worker` + `jobs`（租约）+ run 执行器 + Responses 客户端 + 会话日志 + SSE + 流式正文投影 | `backend.md §5 §6` + `behavior-notes.md` | 真跑一次 run：流式正文投影 + 一个写工具 → SSE 到浏览器 → 草稿落库 |
-| **M4 写作与质量门** | 技能加载（L0+按需）+ 两步式 + `write_content`/`patch_section` + 质量门 + 草稿/定稿/快照 | `ai.md §4` + `prompts.md §3` + `tools.md §2` | 空库跑一篇完整 18 篇基准同构的正文 → 过质量门 → 定稿 → 快照生成 |
-| **M5 关系与综合** | 关系工具 + 综合页（doc 型）+ 系列主文 + 聚合页宿主维护 | `features.md §6.5` + `tools.md §2` | 建一篇综合页并挂关系 → 图谱/关联展示 → 索引页由宿主更新 |
-| **M6 Review 与体检** | `suggestions`（Review 队列）+ `health_findings` + 体检面板 + 确定性检查 | `ai.md §9` + `features.md §6` | 制造孤立节点/失效链/定稿未反哺 → 体检列出 → Review 可裁决 |
-| **M7 反哺与失效重挂** | `sync_targets` + 定稿触发 + GA/Komga 写回 + 失效检测 + 重挂建议 | `library-sync.md §5 §6` | 定稿 → GA/Komga 收到；停掉一个库条目 → 链 stale + 重挂候选 |
-| **M8 检索与问答** | bigram/trigram 检索 + 问答（引用到节点）+ 存为资料 | `database.md §3` + `ai.md §7` | 就库内容提问 → 回答带可点节点引用；好答案存成资料 |
-| **M9 对外与运维** | MCP server + 本地 API + 备份/导出 + 用量成本 + 设置收口 | `api.md` + `features.md §9` | 外部 agent 通过 MCP 只读检索；pg_dump 恢复；成本可见 |
+| **M1 媒体库进料** ✅ | `sources` crate：三源客户端 + 清单构建 + `scan_runs`；池子 API + 前端池子面板 | `library-sync.md §1–3` | 真库（192.168.1.4）扫三源 → 清单进 `library_manifest` → 池子列出"有/无文档" |
+| **M2 建档与关联** ✅ | 落位规则（domain）+ 原子建节点+链（store 事务）+ 池子建档/忽略 + 链管理 | `library-sync.md §2 §4` | 池子点一条 → 树出现节点 + 链 active；解链保留文档；撞名加介质后缀 |
+| **M3 Agent 内核**（尖刺 B） ✅ | `worker` + `jobs`（租约）+ run 执行器 + Responses 客户端 + 会话日志 + SSE + 流式正文投影 | `backend.md §5 §6` + `behavior-notes.md` | 真跑一次 run：流式正文投影 + 一个写工具 → SSE 到浏览器 → 草稿落库 |
+| **M4 写作与质量门** ✅ | 技能加载（L0+按需）+ **三段式（研究→骨架→生成）** + 事实账本 + `patch_section` 按章生成 + 质量门/账本门/骨架门/引用门 + 草稿/定稿/快照 | `design.md §2–§4` + `ai.md §4` + `prompts.md §3` + `tools.md §2` | **规则档**（`design.md §4`）：空库跑一篇 → 过正文门 + 骨架门 + 引用门 + 账本覆盖率 ≥80% → 定稿 → 快照（`scripts/e2e-write.sh`；产出档为持续指标，不阻塞） |
+| **M5 关系与综合** ✅ | 关系工具 + 综合页（doc 型）+ 系列主文 + 聚合页宿主维护 | `features.md §6.5` + `tools.md §2` | 已跑：综合页引两部作品 → 关系图展示 → 宿主动态索引（`e2e-relations.sh` 12/12） |
+| **M6 Review 与体检** ✅ | `suggestions`（Review 队列）+ `health_findings` + 体检面板 + 确定性检查 | `ai.md §9` + `features.md §6` | 已跑：worker 发现缺正文/孤立节点 → 面板可见 → Review 接受后真建节点（`e2e-audit.sh` 9/9） |
+| **M7 反哺与失效重挂** ✅ | `sync_targets` + 定稿触发 + GA/Komga 写回 + 失效检测 + 重挂建议 | `library-sync.md §5 §6` | 已跑：隔离临时库 + 本地真 HTTP 仿真；定稿反哺两源 → stale → UI 重挂 → 旧链 replaced（`e2e-sync.sh` 17/17） |
+| **M8 检索与问答** ✅ | bigram/trigram 检索 + 问答（引用到节点）+ 存为资料 | `database.md §3` + `ai.md §7` | 已跑：正文事实检索 → 可点回文档 → 回答存 doc（`e2e-search.sh` 11/11） |
+| **M9 对外与运维** ✅ | MCP server + 本地 API + 备份/导出 + 用量成本 + 设置/访问密码收口 | `api.md` + `features.md §9` | 已跑：MCP 只读检索、设置/用量、JSON 导出导入、`pg_dump/pg_restore`、访问密码 401/登录（`e2e-ops.sh` 17/17） |
 
 **关键风险与前置**（见 `backend.md §9`）：
 1. **行为知识会丢** → 先写 `behavior-notes.md`（**已完成**，写 M3 前必读）。
@@ -211,6 +243,7 @@
 5. **验收必须真跑**：无头浏览器截图 + 行为断言 + 回服务端核对；不许只凭"构建通过"。
 6. **改 AI 行为**（技能 / 提示词 / 工具）→ 跑基准回归 + 触发纪律评估（`eval-cases.md`）；不过就**优先简化，不叠加新规则**。
 7. **真模型调用要显式确认**（历史上误花过额度）；测试默认用 mock / 副本库。
+8. **验收脚本不许对真库 TRUNCATE / 全表删除**：只碰**自己命名**的测试节点，断言按 `node_id` 圈定（踩过一次：`e2e-ui.sh`/`layout-check.sh` 的 `TRUNCATE nodes CASCADE` 误删了用户手写的节点）。备份走 `scripts/backup.sh`（`pg_dump`）。
 8. **密钥永不进代码/文档/日志**。
 
 ---

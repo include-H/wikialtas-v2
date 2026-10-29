@@ -87,6 +87,14 @@ export default function PoolPanel() {
   }, [polling, qc])
 
   const groups = useMemo(() => groupByContainer(pool.data ?? [], keyword), [pool.data, keyword])
+  const latestSources = useMemo(() => {
+    const seen = new Set<string>()
+    return (runs.data ?? []).filter((r) => {
+      if (seen.has(r.source)) return false
+      seen.add(r.source)
+      return true
+    })
+  }, [runs.data])
   const configured = status.data?.configured
   const noneConfigured = configured && !anyConfigured(configured)
 
@@ -210,8 +218,15 @@ export default function PoolPanel() {
       </div>
 
       <footer className="pool-foot">
-        {runs.data && runs.data.length > 0 && (
-          <span>最近一次：{runs.data.map((r) => `${r.source} ${r.ok ? '✓' : '✗'}`).join(' · ')}</span>
+        {latestSources.length > 0 && (
+          <span className="pool-scan-summary">
+            最近同步
+            {latestSources.map((r) => (
+              <span key={r.source} className={r.ok ? 'is-ok' : 'is-bad'}>
+                {SOURCE_LABEL[r.source]} {r.ok ? '正常' : '失败'}
+              </span>
+            ))}
+          </span>
         )}
         <span style={{ flex: 1 }} />
         <Button type="link" size="small" onClick={() => setIgnoresOpen(true)}>

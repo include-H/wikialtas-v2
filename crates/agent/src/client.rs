@@ -102,15 +102,20 @@ impl ResponsesClient {
         tools: Value,
         tool_choice: &str,
     ) -> Result<mpsc::Receiver<Result<StreamEvent>>> {
-        let body = json!({
+        let mut body = json!({
             "model": self.cfg.model,
             "input": input,
             "stream": true,
-            "reasoning": { "effort": self.cfg.effort },
-            "tools": tools,
-            "tool_choice": tool_choice,
+            "reasoning": { "effort": self.cfg.effort, "summary": "auto" },
             "store": false,
         });
+        // 骨架段是"无工具"的一轮：tools 为空就整个字段都不发（别发空数组，有的网关会 400）。
+        if tools.as_array().map(|a| !a.is_empty()).unwrap_or(true) {
+            body["tools"] = tools;
+            if !tool_choice.is_empty() {
+                body["tool_choice"] = json!(tool_choice);
+            }
+        }
         let url = format!("{}/responses", self.cfg.base_url.trim_end_matches('/'));
         let (tx, rx) = mpsc::channel::<Result<StreamEvent>>(256);
         let http = self.http.clone();

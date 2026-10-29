@@ -1,4 +1,4 @@
-# WikiAtlas v2 · 测试与验收
+# Atlas v2 · 测试与验收
 
 > **管什么**：怎么测、怎么验收、什么算"做完了"。
 > **关联**：里程碑验收见 `README.md §4`；AI 评测用例见 `eval-cases.md`；技能写法纪律见 `skills.md §5`。
